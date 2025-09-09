@@ -14,6 +14,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function PlaygroundPage() {
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
@@ -24,6 +27,19 @@ export default function PlaygroundPage() {
   const [prompt, setPrompt] = useState<string>(
     "You are an expert candidate–job matching engine.\nGiven a structured Candidate Profile and Job Profile, compute a suitability score between 0.0 and 1.0.\n\nReturn STRICT JSON only with fields:\n{\"score\": number, \"explanation\": string}\n\nScoring guidelines:\n- Prioritize hard/mandatory requirements. If a must‑have is missing, cap score at 0.4.\n- Evaluate: skills overlap (names and synonyms), responsibilities alignment, seniority/level, industry/domain, tools/technologies, education/certifications, recency and depth of experience.\n- Penalize outdated or non‑relevant experience and level mismatches.\n- Use the full 0.0–1.0 range; reserve ≥0.8 for strong fits.\n- Keep explanation concise (≤80 words), cite 2–4 strongest signals and any critical gap.\n\nReturn only the JSON object."
   );
+  const [temperature, setTemperature] = useState<number>(0.1);
+
+  // Model-specific settings intentionally simplified: only temperature
+  function supportsTemperatureForModel(m: string | undefined): boolean {
+    if (!m) return true;
+    const l = m.toLowerCase();
+    const isOpenAI = !l.includes("claude") && !l.includes("gemini") && !l.startsWith("models/") && !l.startsWith("groq/");
+    if (!isOpenAI) return true; // Claude/Gemini/Groq support temperature
+    if (l.includes("gpt-5")) return false;
+    if (l.startsWith("o3") || l.startsWith("o4")) return false;
+    return true;
+  }
+  const temperatureSupported = supportsTemperatureForModel(model);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [taskId, setTaskId] = useState<string | null>(null);
 
@@ -85,7 +101,7 @@ export default function PlaygroundPage() {
   const currentMatch = useQuery(
     api.matches.getMatchByCandidateAndJob as any,
     selectedCandidateId && selectedJobId
-      ? ({ candidateId: selectedCandidateId as any, jobId: selectedJobId as any } as any)
+      ? ({ candidateId: selectedCandidateId as any, jobId: selectedJobId as any, model } as any)
       : "skip"
   ) as any | undefined;
 
@@ -107,6 +123,9 @@ export default function PlaygroundPage() {
         jobId: selectedJobId as any,
         model: model || undefined,
         prompt: prompt || undefined,
+        config: {
+          temperature,
+        },
         requestedBy: "playground",
       } as any);
       if (res && typeof res.taskId === "string") setTaskId(res.taskId);
@@ -136,9 +155,18 @@ export default function PlaygroundPage() {
                     key={String(c._id)}
                     value={c?.name ?? String(c._id)}
                     onSelect={() => { setSelectedCandidateId(String(c._id)); setOpenCandidate(false); }}
+                    className="py-3 h-12"
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span className="truncate">{c.name}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Avatar className="h-8 w-8">
+                          {c?.imageUrl ? (
+                            <AvatarImage src={c.imageUrl} alt={c?.name ?? ""} />
+                          ) : null}
+                          <AvatarFallback className="text-[10px]">{getInitials(c?.name)}</AvatarFallback>
+                        </Avatar>
+                        <span className="truncate">{c.name}</span>
+                      </div>
                       <span className="text-xs text-neutral-500 ml-3">{new Date(c.updatedAt ?? c._creationTime).toLocaleDateString()}</span>
                     </div>
                   </CommandItem>
@@ -164,9 +192,15 @@ export default function PlaygroundPage() {
                       key={String(j._id)}
                       value={title}
                       onSelect={() => { setSelectedJobId(String(j._id)); setOpenJob(false); }}
+                      className="py-3 h-12"
                     >
                       <div className="flex items-center justify-between w-full">
-                        <span className="truncate">{title}</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback className="text-[10px]">{getInitials(title)}</AvatarFallback>
+                          </Avatar>
+                          <span className="truncate">{title}</span>
+                        </div>
                         <span className="text-xs text-neutral-500 ml-3">{new Date(j.updatedAt ?? j._creationTime).toLocaleDateString()}</span>
                       </div>
                     </CommandItem>
@@ -246,7 +280,49 @@ export default function PlaygroundPage() {
               <CardContent className="space-y-3">
                 <div className="space-y-2">
                   <Label htmlFor="model">Model</Label>
-                  <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-5" />
+                  <Select value={model} onValueChange={setModel}>
+                    <SelectTrigger id="model" className="w-full">
+                      <SelectValue placeholder="Select a model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectLabel>OpenAI</SelectLabel>
+                        <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
+                        <SelectItem value="gpt-4o">gpt-4o</SelectItem>
+                        <SelectItem value="gpt-4.1">gpt-4.1</SelectItem>
+                        <SelectItem value="gpt-4.1-mini">gpt-4.1-mini</SelectItem>
+                        <SelectItem value="o4-mini">o4-mini</SelectItem>
+                        <SelectItem value="gpt-5">gpt-5</SelectItem>
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel>Anthropic (Claude)</SelectLabel>
+                        <SelectItem value="claude-4-opus-latest">claude-4-opus-latest</SelectItem>
+                        <SelectItem value="claude-4-sonnet-latest">claude-4-sonnet-latest</SelectItem>
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel>Google (Gemini)</SelectLabel>
+                        <SelectItem value="models/gemini-1.5-flash">gemini-1.5-flash</SelectItem>
+                        <SelectItem value="models/gemini-1.5-pro">gemini-1.5-pro</SelectItem>
+                        <SelectItem value="models/gemini-2.0-flash">gemini-2.0-flash</SelectItem>
+                        <SelectItem value="models/gemini-2.5-pro">gemini-2.5-pro</SelectItem>
+                        <SelectItem value="models/gemini-2.5-flash">gemini-2.5-flash</SelectItem>
+                        <SelectItem value="models/gemini-2.5-flash-lite">gemini-2.5-flash-lite</SelectItem>
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel>Groq (Llama/Mixtral)</SelectLabel>
+                        <SelectItem value="groq/llama-3.1-70b-versatile">llama-3.1-70b-versatile</SelectItem>
+                        <SelectItem value="groq/llama-3.1-8b-instant">llama-3.1-8b-instant</SelectItem>
+                        <SelectItem value="groq/mixtral-8x7b-32768">mixtral-8x7b-32768</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-2 col-span-2">
+                    <Label htmlFor="temperature">Temperature <span className="text-xs text-neutral-500">{temperature.toFixed(2)}</span> {!temperatureSupported && (<span className="text-xs text-neutral-500">(not supported for this model)</span>)}
+                    </Label>
+                    <Slider id="temperature" min={0} max={1} step={0.01} value={[temperature]} onValueChange={(v) => setTemperature(Math.max(0, Math.min(1, Number(v?.[0] ?? 0))))} disabled={!temperatureSupported} />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="prompt">Prompt (optional)</Label>
@@ -269,7 +345,17 @@ export default function PlaygroundPage() {
                           </div>
                         </div>
                       ) : taskItem ? (
-                        <div className="text-xs text-neutral-500">Finished: {taskItem.status}</div>
+                        <div className="space-y-2">
+                          <div className="text-xs text-neutral-500">Finished: {taskItem.status}</div>
+                          {taskItem.status === "failed" && taskItem.errorSummary ? (
+                            <div>
+                              <div className="text-xs font-medium">Error</div>
+                              <ScrollArea className="h-24 border border-[var(--border)] rounded">
+                                <pre className="p-2 text-[11px] whitespace-pre-wrap">{String(taskItem.errorSummary)}</pre>
+                              </ScrollArea>
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   )}
@@ -440,6 +526,14 @@ function ScoreCard({ label, value, highlight }: { label: string; value?: number;
       </CardContent>
     </Card>
   );
+}
+
+function getInitials(name?: string) {
+  if (!name) return "?";
+  const parts = name.split(" ").filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
 }
 
 

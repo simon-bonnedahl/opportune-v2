@@ -5,6 +5,7 @@ export const saveMatch = internalMutation({
   args: {
     candidateId: v.id("candidates"),
     jobId: v.id("jobs"),
+    model: v.optional(v.string()),
     score: v.number(),
     explanation: v.optional(v.string()),
     metadata: v.optional(v.any()),
@@ -12,11 +13,15 @@ export const saveMatch = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const normalizedModel: string = String(
+      args.model ?? (args.metadata as any)?.model ?? "unknown"
+    );
     const existing = await ctx.db
       .query("matches")
-      .withIndex("by_candidate_and_job", (q) => q.eq("candidateId", args.candidateId).eq("jobId", args.jobId))
+      .withIndex("by_candidate_job_model", (q) => q.eq("candidateId", args.candidateId).eq("jobId", args.jobId).eq("model", normalizedModel))
       .unique();
     const payload = {
+      model: normalizedModel,
       score: Math.max(0, Math.min(1, args.score)),
       explanation: args.explanation,
       metadata: args.metadata,
@@ -106,16 +111,49 @@ export const getMatchByCandidateAndJob = query({
   args: {
     candidateId: v.union(v.id("candidates"), v.string()),
     jobId: v.union(v.id("jobs"), v.string()),
+    model: v.optional(v.string()),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
     const candidateId = args.candidateId as any;
     const jobId = args.jobId as any;
-    const row = await ctx.db
+    if (args.model) {
+      const exact = await ctx.db
+        .query("matches")
+        .withIndex("by_candidate_job_model", (q) => q.eq("candidateId", candidateId).eq("jobId", jobId).eq("model", args.model as string))
+        .unique();
+      return exact ?? null;
+    }
+    let latest: any | null = null;
+    for await (const it of ctx.db
       .query("matches")
-      .withIndex("by_candidate_and_job", (q) => q.eq("candidateId", candidateId).eq("jobId", jobId))
-      .unique();
-    return row ?? null;
+      .withIndex("by_candidate", (q) => q.eq("candidateId", candidateId))) {
+      if (String(it.jobId) !== String(jobId)) continue;
+      if (!latest || (it.updatedAt ?? it._creationTime) > (latest.updatedAt ?? latest._creationTime)) latest = it;
+    }
+    return latest ?? null;
+  },
+});
+
+// One-off backfill to populate missing `model` from metadata
+export const backfillMissingModel = internalMutation({
+  args: { limit: v.optional(v.number()) },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 200;
+    let updated = 0;
+    for await (const it of ctx.db.query("matches")) {
+      if (updated >= limit) break;
+      const m: any = it as any;
+      if (!m.model) {
+        const inferred = (m?.metadata?.model && typeof m.metadata.model === "string") ? m.metadata.model : "unknown";
+        try {
+          await ctx.db.patch(m._id, { model: inferred } as any);
+          updated++;
+        } catch {}
+      }
+    }
+    return updated;
   },
 });
 

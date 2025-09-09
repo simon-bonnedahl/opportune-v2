@@ -460,6 +460,7 @@ const enqueueArgsValidator = v.object({
   resumeUrl: v.optional(v.string()),
   model: v.optional(v.string()),
   prompt: v.optional(v.string()),
+  config: v.optional(v.any()),
   priority: v.optional(v.number()),
   runAt: v.optional(v.number()),
   requestedBy: v.optional(v.string()),
@@ -625,19 +626,20 @@ export const enqueueTask = mutation({
       const jobId = (args as any).jobId;
       const model = (args as any).model;
       const prompt = (args as any).prompt;
+      const config = (args as any).config;
       if (!candidateId || !jobId) throw new Error("candidateId and jobId required for match");
       const res = await enqueueTrackedAction(
         ctx,
         pool,
         internal.openaiAction.matchCandidateToJob,
-        { candidateId, jobId, model, prompt },
+        { candidateId, jobId, model, prompt, config },
         {
           workpoolName: "match",
           taskType: "match",
           priority: (args as any).priority,
           runAt: (args as any).runAt,
           requestedBy: (args as any).requestedBy,
-          argsSummary: (args as any).argsSummary ?? { candidateId, jobId, model, prompt },
+          argsSummary: (args as any).argsSummary ?? { candidateId, jobId, model, prompt, config },
         }
       );
       return res;

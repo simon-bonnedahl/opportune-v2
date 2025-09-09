@@ -489,19 +489,20 @@ export const matchCandidateToJob = internalAction({
     taskId: v.optional(v.string()),
     model: v.optional(v.string()),
     prompt: v.optional(v.string()),
+    config: v.optional(v.any()),
   },
   returns: v.object({ score: v.number(), explanation: v.string() }),
-  handler: async (ctx, { candidateId, jobId, taskId, model, prompt }) => {
+  handler: async (ctx, { candidateId, jobId, taskId, model, prompt, config }) => {
     if (taskId) try { await ctx.runMutation(internal.tasks.markStarted, { taskId }); } catch {}
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OPENAI_API_KEY not set");
     if (SIMULATE_SLOW) await sleep(randomDelayMs());
 
-    const [cand] = (await ctx.runQuery((api as any).candidates.getProfilesByCandidateIds, { candidateIds: [candidateId] })) as any[];
-    const [job] = (await ctx.runQuery((api as any).jobs.getJobProfilesByJobIds, { jobIds: [jobId] })) as any[];
-    const candText = JSON.stringify(cand ?? {});
-    const jobText = JSON.stringify(job ?? {});
-    const instructions = (prompt && prompt.trim().length > 0) ? prompt : `You are an expert candidate–job matching engine.
+    try {
+      if (taskId) try { await ctx.runMutation(internal.tasks.updateProgress, { taskId, progress: 5, message: "Loading profiles" }); } catch {}
+      const [cand] = (await ctx.runQuery((api as any).candidates.getProfilesByCandidateIds, { candidateIds: [candidateId] })) as any[];
+      const [job] = (await ctx.runQuery((api as any).jobs.getJobProfilesByJobIds, { jobIds: [jobId] })) as any[];
+      const candText = JSON.stringify(cand ?? {});
+      const jobText = JSON.stringify(job ?? {});
+      const instructions = (prompt && prompt.trim().length > 0) ? prompt : `You are an expert candidate–job matching engine.
 Given a structured Candidate Profile and Job Profile, compute a suitability score between 0.0 and 1.0.
 
 Return STRICT JSON only with fields:
@@ -515,34 +516,150 @@ Scoring guidelines:
 - Keep explanation concise (≤80 words), cite 2–4 strongest signals and any critical gap.
 
 Return only the JSON object.`;
+      if (taskId) try { await ctx.runMutation(internal.tasks.updateProgress, { taskId, progress: 20, message: "Calling model" }); } catch {}
 
-    const input: any = [
-      { role: "user", content: [
-        { type: "input_text", text: instructions },
-        { type: "input_text", text: `Candidate Profile: ${candText}` },
-        { type: "input_text", text: `Job Profile: ${jobText}` },
-      ]},
-    ];
-    const mdl = model ?? "gpt-5";
-    const res = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: mdl, input, text: { format: { type: "json_object" } } }),
-    });
-    if (!res.ok) throw new Error(`OpenAI response failed: ${res.status}`);
-    const data = await res.json();
-    let raw: string | null = null;
-    if (Array.isArray(data?.output)) {
-      for (const part of data.output) {
-        if (part?.type === "message" && Array.isArray(part?.content)) {
-          const textPiece = part.content.find((c: any) => c?.type === "output_text" && typeof c?.text === "string");
-          if (textPiece) { raw = textPiece.text as string; break; }
-        }
+      const input: any = [
+        { role: "user", content: [
+          { type: "input_text", text: instructions },
+          { type: "input_text", text: `Candidate Profile: ${candText}` },
+          { type: "input_text", text: `Job Profile: ${jobText}` },
+        ]},
+      ];
+      const mdl = model ?? "gpt-5";
+      const lower = String(mdl).toLowerCase();
+
+      function openaiSupportsTemperature(m: string): boolean {
+        const l = m.toLowerCase();
+        if (l.includes("gpt-5")) return false;
+        if (l.startsWith("o3") || l.startsWith("o4")) return false;
+        return true;
       }
-    }
-    if (!raw && typeof data?.output_text === "string") raw = data.output_text;
-    if (!raw && typeof data?.choices?.[0]?.message?.content === "string") raw = data.choices[0].message.content;
-    if (!raw) raw = JSON.stringify(data);
+
+      function openaiSupportsReasoning(m: string): boolean {
+        const l = m.toLowerCase();
+        return l.startsWith("o3") || l.startsWith("o4") || l.includes("gpt-5");
+      }
+      let raw: string | null = null;
+      if (lower.includes("claude")) {
+        const anthKey = process.env.ANTHROPIC_API_KEY;
+        if (!anthKey) throw new Error("ANTHROPIC_API_KEY not set");
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": anthKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: mdl,
+            max_tokens: config?.maxTokens ?? 1024,
+            temperature: config?.temperature ?? 0,
+            system: "You are a matching engine. Return only a strict JSON object.",
+            messages: [
+              { role: "user", content: `${instructions}\n\nCandidate Profile: ${candText}\n\nJob Profile: ${jobText}` },
+            ],
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`Anthropic response failed: ${res.status} ${body?.slice(0, 500)}`);
+        }
+        const data = await res.json();
+        const text = Array.isArray(data?.content) && data.content[0]?.type === "text" ? data.content[0]?.text : undefined;
+        raw = typeof text === "string" ? text : JSON.stringify(data);
+      } else if (lower.includes("gemini") || lower.startsWith("models/")) {
+        const gemKey = process.env.GOOGLE_API_KEY;
+        if (!gemKey) throw new Error("GOOGLE_API_KEY not set");
+        const modelPath = mdl.startsWith("models/") ? mdl : `models/${mdl}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/${modelPath}:generateContent?key=${gemKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  { text: instructions },
+                  { text: `Candidate Profile: ${candText}` },
+                  { text: `Job Profile: ${jobText}` },
+                ],
+              },
+            ],
+            generationConfig: {
+              response_mime_type: "application/json",
+              temperature: config?.temperature ?? 0,
+              topP: undefined,
+              topK: undefined,
+              maxOutputTokens: undefined,
+            },
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`Gemini response failed: ${res.status} ${body?.slice(0, 500)}`);
+        }
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        raw = typeof text === "string" ? text : JSON.stringify(data);
+      } else if (lower.startsWith("groq/")) {
+        const groqKey = process.env.GROQ_API_KEY;
+        if (!groqKey) throw new Error("GROQ_API_KEY not set");
+        const groqModel = mdl.slice("groq/".length);
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${groqKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: groqModel,
+            response_format: { type: "json_object" },
+            temperature: config?.temperature ?? 0,
+            messages: [
+              { role: "system", content: "You are a matching engine. Return only a strict JSON object with fields score and explanation." },
+              { role: "user", content: `${instructions}\n\nCandidate Profile: ${candText}\n\nJob Profile: ${jobText}` },
+            ],
+            max_tokens: 800,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`Groq response failed: ${res.status} ${body?.slice(0, 500)}`);
+        }
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content;
+        raw = typeof content === "string" ? content : JSON.stringify(data);
+      } else {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) throw new Error("OPENAI_API_KEY not set");
+        // Default OpenAI path
+        const res = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify((() => {
+            const body: any = { model: mdl, input, text: { format: { type: "json_object" } } };
+            if (openaiSupportsTemperature(mdl)) body.temperature = config?.temperature ?? 0;
+            if (openaiSupportsReasoning(mdl) && config?.reasoningEffort) body.reasoning = { effort: config.reasoningEffort };
+            return body;
+          })()),
+        });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(`OpenAI response failed: ${res.status} ${body?.slice(0, 500)}`);
+        }
+        const data = await res.json();
+        if (Array.isArray(data?.output)) {
+          for (const part of data.output) {
+            if (part?.type === "message" && Array.isArray(part?.content)) {
+              const textPiece = part.content.find((c: any) => c?.type === "output_text" && typeof c?.text === "string");
+              if (textPiece) { raw = textPiece.text as string; break; }
+            }
+          }
+        }
+        if (!raw && typeof data?.output_text === "string") raw = data.output_text;
+        if (!raw && typeof data?.choices?.[0]?.message?.content === "string") raw = data.choices[0].message.content;
+        if (!raw) raw = JSON.stringify(data);
+      }
+
+      if (taskId) try { await ctx.runMutation(internal.tasks.updateProgress, { taskId, progress: 70, message: "Parsing response" }); } catch {}
     let result: any; try { result = JSON.parse(raw); } catch { result = { score: 0, explanation: raw }; }
     const score = Number(result?.score ?? 0);
     const explanation = String(result?.explanation ?? "");
@@ -550,12 +667,19 @@ Return only the JSON object.`;
     await ctx.runMutation((internal as any).matches.saveMatch, {
       candidateId,
       jobId,
+      model: mdl,
       score: Math.max(0, Math.min(1, score)),
       explanation,
-      metadata: { model: mdl, prompt },
+      metadata: { model: mdl, prompt, config },
       updatedAt: Date.now(),
     });
-    return { score: Math.max(0, Math.min(1, score)), explanation };
+      if (taskId) try { await ctx.runMutation(internal.tasks.updateProgress, { taskId, progress: 100, message: "Done" }); } catch {}
+      return { score: Math.max(0, Math.min(1, score)), explanation };
+    } catch (err: any) {
+      const message = typeof err?.message === "string" ? err.message : String(err);
+      if (taskId) try { await ctx.runMutation(internal.tasks.updateProgress, { taskId, progress: 100, message }); } catch {}
+      throw err;
+    }
   },
 });
 

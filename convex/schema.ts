@@ -147,6 +147,7 @@ export default defineSchema({
   matches: defineTable({
     candidateId: v.id("candidates"),
     jobId: v.id("jobs"),
+    model: v.optional(v.string()), // temporarily optional for backfill
     score: v.number(),
     explanation: v.optional(v.string()),
     metadata: v.optional(v.any()),
@@ -154,7 +155,8 @@ export default defineSchema({
   })
     .index("by_candidate", ["candidateId"])
     .index("by_job", ["jobId"])
-    .index("by_candidate_and_job", ["candidateId", "jobId"]),
+    .index("by_candidate_and_job", ["candidateId", "jobId"]) // legacy index kept for compatibility
+    .index("by_candidate_job_model", ["candidateId", "jobId", "model"]),
   // Tasks tracking for fine-grained monitoring and queue control
   tasks: defineTable({
     workpoolName: v.string(),
