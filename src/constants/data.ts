@@ -18,11 +18,6 @@ export const navItems: MainNavItem[] = [
     icon: 'laptop',
   },
   {
-    title: 'Import',
-    url: '/import',
-    icon: 'laptop',
-  },
-  {
     title: 'Workpools',
     url: '/workpools',
     icon: 'laptop',
