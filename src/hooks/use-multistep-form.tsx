@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ReactElement, useCallback, useState } from 'react';
 
 export default function useMultistepForm(steps: ReactElement<any>[]) {
