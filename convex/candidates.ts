@@ -1,174 +1,180 @@
-import { internalMutation, query } from "./_generated/server";
+import { action, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { enqueueTask } from "./tasks";
+import { candidateProfileSections } from "./tables/candidates";
+import { api, internal } from "./_generated/api";
+import { paginationOptsValidator } from "convex/server";
 
-// Profiles (moved from profiles.ts)
-export const upsertCandidateProfile = internalMutation({
+// Helpers
+// Helper function to validate candidate profile completeness
+export function validateCandidateProfile(profile: any): void {
+  const emptyFields = [];
+  
+  // Check string fields
+  if (!profile.summary || profile.summary.trim().length === 0) {
+    emptyFields.push("summary");
+  }
+  
+  // Check array fields
+  if (!profile.technicalSkills || profile.technicalSkills.length === 0) {
+    emptyFields.push("technicalSkills");
+  }
+  
+  if (!profile.softSkills || profile.softSkills.length === 0) {
+    emptyFields.push("softSkills");
+  }
+  
+  if (!profile.education || profile.education.length === 0) {
+    emptyFields.push("education");
+  }
+  
+  if (!profile.workExperience || profile.workExperience.length === 0) {
+    emptyFields.push("workExperience");
+  }
+  
+  if (!profile.preferences || profile.preferences.length === 0) {
+    emptyFields.push("preferences");
+  }
+  
+  if (!profile.aspirations || profile.aspirations.length === 0) {
+    emptyFields.push("aspirations");
+  }
+  
+  if (emptyFields.length > 0) {
+    throw new Error(`Couldnt embed candidate profile. Missing or empty fields: ${emptyFields.join(", ")}`);
+  }
+}
+
+
+// Internal
+export const upsertProfile = internalMutation({
   args: {
     candidateId: v.id("candidates"),
-    summary: v.optional(v.string()),
-    raw: v.optional(v.string()),
-    metadata: v.optional(v.any()),
-    education: v.optional(
-      v.array(
-        v.object({
-          institution: v.optional(v.union(v.string(), v.null())),
-          degree: v.optional(v.union(v.string(), v.null())),
-          field: v.optional(v.union(v.string(), v.null())),
-          startDate: v.optional(v.union(v.string(), v.null())),
-          endDate: v.optional(v.union(v.string(), v.null())),
-          notes: v.optional(v.union(v.string(), v.null())),
-        })
-      )
+    summary: v.string(),
+    description: v.string(),
+    raw: v.string(),
+    metadata: v.any(),
+    education: v.array(v.string()),
+    workExperience: v.array(v.string()),
+    preferences: v.array(v.string()),
+    aspirations: v.array(v.string()),
+    technicalSkills: v.array(
+
+      v.object({
+        name: v.string(),
+        score: v.number(),
+      })
+
     ),
-    skills: v.optional(
-      v.array(
-        v.object({
-          name: v.string(),
-          score: v.number(),
-        })
-      )
-    ),
-    workExperience: v.optional(
-      v.array(
-        v.object({
-          company: v.optional(v.union(v.string(), v.null())),
-          title: v.optional(v.union(v.string(), v.null())),
-          startDate: v.optional(v.union(v.string(), v.null())),
-          endDate: v.optional(v.union(v.string(), v.null())),
-          responsibilities: v.optional(v.array(v.string())),
-        })
-      )
-    ),
-    updatedAt: v.number(),
+    softSkills: (v.array(
+
+      v.object({
+        name: v.string(),
+        score: v.number(),
+      })
+
+    )),
   },
-  returns: v.id("candidateProfiles"),
   handler: async (ctx, args) => {
-    const normalizeEducation = (ed?: Array<any>) =>
-      ed?.map((e) => ({
-        institution: e.institution ?? undefined,
-        degree: e.degree ?? undefined,
-        field: e.field ?? undefined,
-        startDate: e.startDate ?? undefined,
-        endDate: e.endDate ?? undefined,
-        notes: e.notes ?? undefined,
-      }));
-    const normalizeWorkExperience = (we?: Array<any>) =>
-      we?.map((w) => ({
-        company: w.company ?? undefined,
-        title: w.title ?? undefined,
-        startDate: w.startDate ?? undefined,
-        endDate: w.endDate ?? undefined,
-        responsibilities: w.responsibilities ?? undefined,
-      }));
-    const normalizedEducation = normalizeEducation(args.education as any);
-    const normalizedWorkExperience = normalizeWorkExperience(args.workExperience as any);
+
     const existing = await ctx.db
       .query("candidateProfiles")
       .withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId))
       .first();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        summary: args.summary ?? existing.summary,
-        raw: args.raw ?? existing.raw,
-        metadata: args.metadata ?? existing.metadata,
-        education: normalizedEducation ?? existing.education,
-        skills: args.skills ?? existing.skills,
-        workExperience: normalizedWorkExperience ?? existing.workExperience,
-        updatedAt: args.updatedAt,
-      } as any);
+
+    const { candidateId, ...rest } = args;
+    if (existing) { //TODO: is this needed?
+      const updateData = Object.fromEntries(
+        Object.entries({ ...rest }).filter(([_, value]) => value.length > 0)
+      );
+
+      await ctx.db.patch(args.candidateId, {...updateData, updatedAt: Date.now()});
       return existing._id;
     }
+
     return await ctx.db.insert("candidateProfiles", {
       candidateId: args.candidateId,
       summary: args.summary,
+      description: args.description,
       raw: args.raw,
       metadata: args.metadata,
-      education: normalizedEducation,
-      skills: args.skills,
-      workExperience: normalizedWorkExperience,
-      updatedAt: args.updatedAt,
-    } as any);
+      education: args.education,
+      technicalSkills: args.technicalSkills,
+      softSkills: args.softSkills,
+      workExperience: args.workExperience,
+      preferences: args.preferences,
+      aspirations: args.aspirations,
+      updatedAt: Date.now(),
+    });
   },
 });
 
-export const getProfilesByCandidateIds = query({
-  args: { candidateIds: v.array(v.id("candidates")) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const results: Array<any> = [];
-    for (const id of args.candidateIds) {
-      const row = await ctx.db
-        .query("candidateProfiles")
-        .withIndex("by_candidate_id", (q) => q.eq("candidateId", id))
-        .first();
-      if (row) {
-        results.push({
-          candidateId: row.candidateId,
-          summary: row.summary,
-          raw: row.raw,
-          metadata: row.metadata,
-          education: row.education,
-          skills: row.skills,
-          workExperience: row.workExperience,
-          updatedAt: row.updatedAt,
-        });
-      }
-    }
-    return results;
-  },
-});
 
-// Candidate core data
-export const createCandidateRecord = internalMutation({
+export const create = internalMutation({
   args: {
     teamtailorId: v.string(),
     name: v.string(),
     imageUrl: v.optional(v.string()),
     email: v.optional(v.string()),
+    linkedinUrl: v.optional(v.string()),
     phone: v.optional(v.string()),
-    updatedAt: v.number(),
     rawData: v.any(),
+    processingTask: v.optional(v.id("tasks")),
+    updatedAtTT: v.number(),
+    createdAtTT: v.number(),
   },
-  returns: v.union(v.id("candidates"), v.null()),
   handler: async (ctx, args) => {
     const existingCandidate = await ctx.db
       .query("candidates")
       .withIndex("by_teamtailor_id", (q) => q.eq("teamtailorId", args.teamtailorId))
       .first();
-    if (existingCandidate) {
-      await ctx.db.patch(existingCandidate._id, {
-        name: args.name,
-        imageUrl: args.imageUrl ?? existingCandidate.imageUrl,
-        email: args.email,
-        phone: args.phone,
-        updatedAt: args.updatedAt,
-        rawData: args.rawData,
-      } as any);
-      return existingCandidate._id;
-    }
-    const newId = await ctx.db.insert("candidates", {
+
+    if (existingCandidate)
+      throw new Error("Candidate already exists with teamtailor id " + args.teamtailorId);
+
+    const candidateId = await ctx.db.insert("candidates", {
       teamtailorId: args.teamtailorId,
       name: args.name,
       imageUrl: args.imageUrl,
       email: args.email,
+      linkedinUrl: args.linkedinUrl,
       phone: args.phone,
-      updatedAt: args.updatedAt,
       rawData: args.rawData,
-    } as any);
-    return newId;
+      processingTask: args.processingTask,
+      updatedAt: Date.now(),
+      updatedAtTT: args.updatedAtTT,
+      createdAtTT: args.createdAtTT,
+    });
+    return candidateId;
   },
 });
 
-export const upsertCandidateSourceData = internalMutation({
+export const upsertEmbedding = internalMutation({
+  args: { candidateId: v.id("candidates"), vector: v.array(v.number()), section: candidateProfileSections, metadata: v.optional(v.any()) },
+  handler: async (ctx, args) => {
+    //update if exists - query by both candidateId and section to avoid race conditions
+    const existing = await ctx.db.query("candidateEmbeddings").withIndex("by_candidate_id_and_section", (q) => 
+      q.eq("candidateId", args.candidateId).eq("section", args.section)
+    ).first();
+    
+    if (existing) {
+      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata });
+      return existing._id;
+    }
+    return await ctx.db.insert("candidateEmbeddings", { candidateId: args.candidateId, vector: args.vector, section: args.section, metadata: args.metadata });
+  },
+});
+
+
+export const upsertSourceData = internalMutation({
   args: {
     candidateId: v.id("candidates"),
     assessment: v.optional(v.any()),
     hubertAnswers: v.optional(v.any()),
-    cv: v.optional(v.any()),
-    hubertOpenSummaryUrl: v.optional(v.string()),
-    updatedAt: v.number(),
+    hubertUrl: v.optional(v.string()),
+    resumeSummary: v.optional(v.string()),
+    linkedinSummary: v.optional(v.string()),
   },
-  returns: v.union(v.id("candidateSourceData"), v.null()),
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("candidateSourceData")
@@ -178,59 +184,90 @@ export const upsertCandidateSourceData = internalMutation({
       const update = {
         assessment: args.assessment ?? existing.assessment,
         hubertAnswers: args.hubertAnswers ?? existing.hubertAnswers,
-        cv: args.cv ?? existing.cv,
-        hubertOpenSummaryUrl: args.hubertOpenSummaryUrl ?? existing.hubertOpenSummaryUrl,
-        updatedAt: args.updatedAt,
+        hubertUrl: args.hubertUrl ?? existing.hubertUrl,
+        resumeSummary: args.resumeSummary ?? existing.resumeSummary,
+        linkedinSummary: args.linkedinSummary ?? existing.linkedinSummary,
+        updatedAt: Date.now(),
       };
-      await ctx.db.patch(existing._id, update as any);
+      await ctx.db.patch(existing._id, update);
       return existing._id;
     }
-    const doc: any = {
+    const doc = {
       candidateId: args.candidateId,
       assessment: args.assessment,
       hubertAnswers: args.hubertAnswers,
-      cv: args.cv,
-      hubertOpenSummaryUrl: args.hubertOpenSummaryUrl,
-      updatedAt: args.updatedAt,
+      hubertUrl: args.hubertUrl,
+      resumeSummary: args.resumeSummary,
+      linkedinSummary: args.linkedinSummary,
+      updatedAt: Date.now(),
     };
-    return await ctx.db.insert("candidateSourceData", doc as any);
+    return await ctx.db.insert("candidateSourceData", doc);
   },
 });
 
-export const setCandidateProcessingStatus = internalMutation({
-  args: { candidateId: v.id("candidates"), processingStatus: v.string() },
-  returns: v.null(),
+export const setProcessingTask = internalMutation({
+  args: { candidateId: v.id("candidates"), processingTask: v.id("tasks") },
   handler: async (ctx, args) => {
-    try { await ctx.db.patch(args.candidateId as any, { processingStatus: args.processingStatus } as any); } catch {}
-    return null;
+    return await ctx.db.patch(args.candidateId, { processingTask: args.processingTask });
   },
 });
 
-export const getCandidates = query({
+
+
+
+//Api
+export const add = action({
+  args: {
+    teamtailorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+
+    await enqueueTask(ctx, "import", "user", { teamtailorId: args.teamtailorId, type: "candidate" });
+  }
+});
+
+export const addMany = action({
+  args: {
+    teamtailorIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    for (const teamtailorId of args.teamtailorIds) {
+      await enqueueTask(ctx, "import", "user", { teamtailorId: teamtailorId, type: "candidate" });
+    }
+  }
+});
+
+export const addByUpdatedTT = action({
+  args: {
+    updatedAtTT: v.number(),
+  },
+  handler: async (ctx, args) => {
+    //get teamtailorIds from internal.teamtailor.getCandidatesByUpdatedTT
+    const teamtailorIds = await ctx.runAction(internal.teamtailor.getCandidatesByUpdatedTT, { updatedAtTT: args.updatedAtTT });
+
+    //addMany with teamtailorIds
+    await ctx.runAction(api.candidates.addMany, { teamtailorIds: teamtailorIds });
+  }
+});
+
+export const getSourceData = query({
+  args: { candidateId: v.id("candidates") },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("candidateSourceData").withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId)).unique();
+  },
+});
+
+
+export const list = query({
   args: {},
   returns: v.array(v.any()),
   handler: async (ctx) => {
-    return await ctx.db.query("candidates").collect();
+    return await ctx.db.query("candidates").order("desc").collect();
   },
 });
 
-export const getSourceDataByCandidateIds = query({
-  args: { candidateIds: v.array(v.id("candidates")) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const results: any[] = [];
-    for (const candidateId of args.candidateIds) {
-      const row = await ctx.db
-        .query("candidateSourceData")
-        .withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId))
-        .first();
-      if (row) results.push(row);
-    }
-    return results;
-  },
-});
 
-export const getCandidateById = query({
+export const get = query({
   args: { candidateId: v.id("candidates") },
   returns: v.union(v.any(), v.null()),
   handler: async (ctx, args) => {
@@ -239,5 +276,119 @@ export const getCandidateById = query({
 });
 
 
+
+
+
+
+export const getProfile = query({
+  args: { candidateId: v.id("candidates") },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.db.query("candidateProfiles").withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId)).unique();
+  },
+});
+
+
+
+
+// New queries for candidates page with search and pagination
+export const listPaginated = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const search = args.search?.toLowerCase().trim();
+    if(!search) {
+      return await ctx.db.query("candidates").order("desc").paginate(args.paginationOpts);
+    }
+
+    return await ctx.db.query("candidates").withSearchIndex("by_name", (q) => q.search("name", search)).paginate(args.paginationOpts);
+
+    
+  },
+});
+
+export const getCandidatesCount = query({
+  args: {
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const search = args.search?.toLowerCase().trim();
+
+    let candidates = await ctx.db.query("candidates").collect();
+
+    if (search) {
+      candidates = candidates.filter((candidate) => {
+        const name = candidate.name?.toLowerCase() ?? "";
+        const email = candidate.email?.toLowerCase() ?? "";
+        const phone = candidate.phone?.toLowerCase() ?? "";
+        return name.includes(search) || email.includes(search) || phone.includes(search);
+      });
+    }
+
+    return candidates.length;
+  },
+});
+
+export const getCandidateById = query({
+  args: { candidateId: v.id("candidates") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.candidateId);
+  },
+});
+
+
+export const getProfilesByCandidateIds = query({
+  args: { candidateIds: v.array(v.id("candidates")) },
+  handler: async (ctx, args) => {
+    const profiles = [];
+    for (const candidateId of args.candidateIds) {
+      const profile = await ctx.db
+        .query("candidateProfiles")
+        .withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId))
+        .first();
+      if (profile) profiles.push(profile);
+    }
+    return profiles;
+  },
+});
+
+export const getSourceDataByCandidateIds = query({
+  args: { candidateIds: v.array(v.id("candidates")) },
+  handler: async (ctx, args) => {
+    const sourceData = [];
+    for (const candidateId of args.candidateIds) {
+      const data = await ctx.db
+        .query("candidateSourceData")
+        .withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId))
+        .first();
+      if (data) sourceData.push(data);
+    }
+    return sourceData;
+  },
+});
+
+export const getProcessingStatus = query({
+  args: { candidateId: v.id("candidates") },
+  handler: async (ctx, args) => {
+      const candidate = await ctx.db.get(args.candidateId);
+      if (candidate?.processingTask) {
+        const task = await ctx.db.get(candidate.processingTask);
+        return {
+          status: task?.status || "unknown",
+          progress: task?.progress || 0,
+          progressMessage: task?.progressMessage || "",
+          errorMessage: task?.errorMessage || "",
+        };
+      }
+      return {
+        status: "unknown",
+        progress: 0,
+        progressMessage: "",
+        errorMessage: "",
+      };
+    },
+});
 
 

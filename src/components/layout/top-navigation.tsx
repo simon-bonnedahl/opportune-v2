@@ -50,16 +50,14 @@ export default function TopNavigation() {
   }, [activeKey]);
 
   return (
-    <header className="flex h-16 items-center justify-between border-b  px-6">
+    <header className="flex h-16 items-center border-b px-6">
       {/* Logo and Navigation */}
-      <div className="flex items-center gap-8">
+      <div className="flex items-center gap-6">
         <Link href="/">
           <div className='h-16 w-16'>
             <Image src="/images/opportune-logo.svg" alt="Opportune" width={200} height={200} className='size-16 filter dark:invert' />
           </div>
         </Link>
-      </div>
-      <div className="flex items-center gap-8">
         {/* Navigation Tabs */}
         <nav
           ref={navRef}
@@ -107,7 +105,7 @@ export default function TopNavigation() {
       </div>
 
       {/* Right side - Search, Theme Toggle, User */}
-      <div className="flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-4">
         <div className="hidden md:flex">
           <SearchInput />
         </div>

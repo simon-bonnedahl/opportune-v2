@@ -1,794 +1,475 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { action, ActionCtx, internalAction, internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { vWorkIdValidator, Workpool } from "@convex-dev/workpool";
-import { internal, components } from "./_generated/api";
-import { buildPool, embedPool, importPool, matchPool } from "./workpools";
+import { internal, api } from "./_generated/api";
+import { getWorkpoolForTaskType } from "./workpools";
+import { taskStatus, taskType, TaskType } from "./types";
+import { Id } from "./_generated/dataModel";
+import { paginationOptsValidator } from "convex/server";
+import { CandidateProfileSections } from "./tables/candidates";
+import { validateCandidateProfile } from "./candidates";
 
-type EnqueueTrackedOptions = {
-  workpoolName: string;
-  priority?: number; // higher runs earlier in our UI semantics
-  runAt?: number; // override schedule time; defaults to now
-  requestedBy?: string;
-  argsSummary?: unknown;
-  taskKey?: string; // optional stable key for dedupe or grouping
-  taskType?: string; // e.g. import|build_profile|embed|match
-};
 
-function generateTrackingId(): string {
-  // Simple, readable unique id
-  const rand = Math.random().toString(36).slice(2, 10);
-  return `${Date.now()}-${rand}`;
+
+
+export async function enqueueTask(ctx: ActionCtx, type: TaskType, triggeredBy: "user" | "task" | "cron" | "system", args: any, previousTaskId?: Id<"tasks"> ) {
+
+  const pool = getWorkpoolForTaskType(type);
+  if (!pool) throw new Error(`No workpool found for task type: ${type}`);
+  const taskRef = pool.allowedTasks.find(task => task.type === type)?.ref;
+  if (!taskRef) throw new Error(`No task ref found for task type: ${type}`);
+
+  let triggeredById = undefined;
+  if(triggeredBy === "task") {
+    triggeredById = previousTaskId;
+  }
+  if(triggeredBy === "user") {
+    const user = await ctx.runQuery(api.users.current);
+    if (!user) throw new Error("User not found");
+    triggeredById = user._id;
+  }
+
+
+  const taskId = await ctx.runMutation(internal.tasks.createTask, { type, workpool: pool.name, status: "queued", queuedAt: Date.now(), args: args, triggeredBy, triggeredById});
+
+  const workId = await pool.enqueueAction(ctx, taskRef, { taskId, ...args, });
+
+  return { taskId, workId };
 }
 
-// Result validator for onComplete
-const resultValidator = v.union(
-  v.object({ kind: v.literal("success"), returnValue: v.optional(v.any()) }),
-  v.object({ kind: v.literal("failed"), error: v.any() }),
-  v.object({ kind: v.literal("canceled") })
-);
+export async function enqueueTaskRerun(ctx: ActionCtx, taskId: Id<"tasks">) {
+  const task = await ctx.runQuery(api.tasks.get, { taskId });
 
-export const onComplete = internalMutation({
+  if (!task) throw new Error("Task not found");
+  const pool = getWorkpoolForTaskType(task.type as TaskType);
+  if (!pool) throw new Error("No pool found for task type: " + task.type);
+  const taskRef = pool.allowedTasks.find(task => task.type === task.type)?.ref;
+  if (!taskRef) throw new Error("No task ref found for task type: " + task.type);
+
+  const user = await ctx.runQuery(api.users.current);
+  if (!user) throw new Error("User not found");
+
+  await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "queued", queuedAt: Date.now(), errorMessage: "", progress: 0, progressMessage: "", runAt: undefined, stoppedAt: undefined, attempts: task.attempts + 1, metadata: undefined, triggeredBy: "user", triggeredById: user._id});
+  const workId = await pool.enqueueAction(ctx, taskRef, { taskId, ...task.args, });
+
+  return { taskId, workId };
+}
+
+//INTERNAL
+  export const createTask = internalMutation({
   args: {
-    workId: vWorkIdValidator,
-    result: resultValidator,
-    context: v.object({ taskId: v.string() }),
+    type: taskType,
+    workpool: v.string(),
+    status: taskStatus,
+    queuedAt: v.number(),
+    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron"), v.literal("system")),
+    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"))),
+    args: v.any(),
   },
-  returns: v.null(),
   handler: async (ctx, args) => {
-    const { taskId } = args.context;
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", taskId))
-      .unique();
-    if (!row) return null;
-
-    // Derive final status from result
-    let status: string = row.status;
-    let errorSummary: string | undefined;
-    // If a cancel was requested, prefer marking as canceled regardless of result
-    const wasCancelRequested = row.status === "cancelRequested";
-    if (args.result.kind === "success") {
-      status = wasCancelRequested ? "canceled" : "succeeded";
-    } else if (args.result.kind === "failed") {
-      status = wasCancelRequested ? "canceled" : "failed";
-      try {
-        errorSummary = typeof args.result.error === "string" ? args.result.error : JSON.stringify(args.result.error);
-      } catch {
-        errorSummary = "unknown error";
-      }
-    } else if (args.result.kind === "canceled") {
-      status = "canceled";
-    }
-
-    await ctx.db.patch(row._id, {
+    const { type, workpool, status, queuedAt, triggeredBy } = args;
+    const taskId = await ctx.db.insert("tasks", {
+      workpool,
+      type,
+      triggeredBy,
+      triggeredById: args.triggeredById,
+      args: args.args,
       status,
-      errorSummary,
-      workpoolState: "finished",
-      finishedAt: Date.now(),
+      queuedAt,
+      attempts: 1,
+      progress: 0,
+      progressMessage: "",
+      errorMessage: "",
     });
+    return taskId;
+  },
+});
 
-    // If a build_profile task completed successfully, enqueue embeddings in the embed workpool
-    try {
-      if (status === "succeeded" && row.taskType === "build_profile") {
-        const argsObj: any = (row.argsSummary ?? row.args ?? {}) as any;
-        const candidateId = argsObj.candidateId;
-        const jobId = argsObj.jobId;
-        const pool = getPoolForTaskType("embed");
-        if (candidateId) {
-          await enqueueTrackedAction(
-            ctx,
-            pool,
-            internal.openaiAction.buildCandidateEmbeddingsWrapper,
-            { candidateId },
-            {
-              workpoolName: "embed",
-              taskType: "embed",
-              priority: 0,
-              runAt: Date.now(),
-              requestedBy: row.requestedBy ?? "system",
-              argsSummary: { candidateId },
-            }
-          );
-        } else if (jobId) {
-          await enqueueTrackedAction(
-            ctx,
-            pool,
-            internal.openaiAction.buildJobEmbeddingsWrapper,
-            { jobId },
-            {
-              workpoolName: "embed",
-              taskType: "embed",
-              priority: 0,
-              runAt: Date.now(),
-              requestedBy: row.requestedBy ?? "system",
-              argsSummary: { jobId },
-            }
-          );
-        }
+
+
+
+export const updateTask = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    status: taskStatus,
+    queuedAt: v.optional(v.number()),
+    triggeredBy: v.optional(v.union(v.literal("user"), v.literal("task"), v.literal("cron"), v.literal("system"))),
+    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"))),
+    runAt: v.optional(v.number()),
+    stoppedAt: v.optional(v.number()),
+    progress: v.optional(v.number()),
+    progressMessage: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    attempts: v.optional(v.number()),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const { taskId, status, ...optionalFields } = args;
+
+    const updateData = Object.fromEntries(
+      Object.entries({ status, ...optionalFields }).filter(([_, value]) => value !== undefined)
+    );
+
+    await ctx.db.patch(taskId, updateData);
+  },
+});
+
+//TASKS
+export const task_tt_import = internalAction({
+  args: {
+    taskId: v.id("tasks"),
+    teamtailorId: v.string(),
+    type: v.union(v.literal("candidate"), v.literal("job")),
+  },
+  handler: async (ctx, args) => {
+    const { taskId, teamtailorId, type } = args;
+    //set task to running
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", runAt: Date.now() });
+
+
+    if (type === "candidate") {
+      try {
+        //Step 1: import candidate
+        const candidate = await ctx.runAction(internal.teamtailor.importCandidate, { teamtailorId });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 10, progressMessage: "Candidate with id " + teamtailorId + " imported" });
+
+
+        //Step 2: create candidate record
+        const candidateId = await ctx.runMutation(internal.candidates.create, {
+          teamtailorId: teamtailorId,
+          name: candidate.name,
+          imageUrl: candidate.imageUrl,
+          email: candidate.email,
+          linkedinUrl: candidate.linkedinUrl,
+          rawData: candidate,
+          processingTask: taskId,
+          updatedAtTT: candidate.updatedAtTT,
+          createdAtTT: candidate.createdAtTT,
+
+        });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 30, progressMessage: "Candidate with id " + teamtailorId + " created" });
+
+        //Step 3: fetch assesment
+        const assesment = await ctx.runAction(internal.teamtailor.fetchCandidateAssesment, { teamtailorId });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Fetched assesment for candidate with id " + teamtailorId });
+
+        //Step 4: fetch hubert answers
+        const { hubertUrl, hubertAnswers } = await ctx.runAction(internal.hubert.fetchHubert, { teamtailorId });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 70, progressMessage: "Fetched hubert answers for candidate with id " + teamtailorId });
+
+        //Step 5: create candidate source data
+        await ctx.runMutation(internal.candidates.upsertSourceData, {
+          candidateId: candidateId,
+          assessment: assesment,
+          hubertAnswers: hubertAnswers,
+          hubertUrl: hubertUrl,
+          resumeSummary: candidate.resumeSummary,   //From Teamtailor
+          linkedinSummary: candidate.linkedinSummary,   //From Teamtailor
+        });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 90, progressMessage: "Created candidate source data for candidate with id " + teamtailorId });
+
+        //Step 6: enqueue build profile task
+        await enqueueTask(ctx, "build_profile", "task", { type: "candidate", id: candidateId }, taskId);
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", stoppedAt: Date.now(), progress: 100, progressMessage: "Queued build profile task for candidate with id " + teamtailorId });
+
+
+        return { success: true, message: "Candidate with id " + teamtailorId + " imported" };
+
+      } catch (error) {
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when importing candidate" });
+        return { success: false, message: "Candidate with id " + teamtailorId + "could not be imported" };
       }
-      // If a cv_summarize task completed successfully, chain build_profile
-      if (status === "succeeded" && row.taskType === "cv_summarize") {
-        const argsObj: any = (row.argsSummary ?? row.args ?? {}) as any;
-        const candidateId = argsObj.candidateId;
-        if (candidateId) {
-          const pool = getPoolForTaskType("build_profile");
-          await enqueueTrackedAction(
-            ctx,
-            pool,
-            internal.openaiAction.buildProfile,
-            { candidateId },
-            {
-              workpoolName: "build",
-              taskType: "build_profile",
-              priority: 0,
-              runAt: Date.now(),
-              requestedBy: row.requestedBy ?? "system",
-              argsSummary: { candidateId },
-            }
-          );
-        }
-      }
-    } catch (e) {
-      // Best-effort follow-on enqueue; ignore failures here
+
     }
-    return null;
-  },
-});
 
-export const markStarted = internalMutation({
-  args: { taskId: v.string() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-    if (!row) return null;
-    if (row.status === "running") return null;
-    await ctx.db.patch(row._id, {
-      status: "running",
-      workpoolState: "running",
-      startedAt: Date.now(),
-    });
-    return null;
-  },
-});
+    if (type === "job") {
+      try {
+        //Step 1: import job
+        const job = await ctx.runAction(internal.teamtailor.importJob, { teamtailorId });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 10, progressMessage: "Job with id " + teamtailorId + " imported" });
+        //Step 2: create job record
+        const jobId = await ctx.runMutation(internal.jobs.createJob, {
+          teamtailorId,
+          title: job.title,
+          location: job.location,
 
-export const updateProgress = internalMutation({
-  args: { taskId: v.string(), progress: v.number(), message: v.optional(v.string()) },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-    if (!row) return null;
-    await ctx.db.patch(row._id, {
-      progress: Math.max(0, Math.min(100, args.progress)),
-      progressMessage: args.message,
-      lastHeartbeatAt: Date.now(),
-    });
-    return null;
-  },
-});
+          rawData: job.rawData,
+          processingTask: taskId,
+          updatedAtTT: job.updatedAtTT,
+          createdAtTT: job.createdAtTT,
 
-export const shouldCancel = internalQuery({
-  args: { taskId: v.string() },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-    return row ? row.status === "cancelRequested" : false;
-  },
-});
-
-// Create workpools once per module load and reuse
-
-
-function getPoolForName(name: string): Workpool | null {
-  if (name === "import") return importPool;
-  if (name === "build") return buildPool;
-  if (name === "embed") return embedPool;
-  if (name === "match") return matchPool;
-  return null;
-}
-
-export const requestCancel = mutation({
-  args: { taskId: v.string() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-    if (!row) return null;
-    if (row.status === "canceled" || row.status === "succeeded" || row.status === "failed") return null;
-    await ctx.db.patch(row._id, { status: "cancelRequested" });
-    if (row.workId && row.workpoolState !== "finished") {
-      const pool = getPoolForName(row.workpoolName);
-      if (pool) {
-        await pool.cancel(ctx, row.workId as any);
+        });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Job with id " + teamtailorId + " created" });
+        //Step 3: enqueue build profile task
+        await enqueueTask(ctx, "build_profile", "task", { type: "job", id: jobId }, taskId);
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, progressMessage: "Queued build profile task for job with id " + teamtailorId });
+        return { success: true, message: "Job with id " + teamtailorId + " imported" };
+      } catch (error) {
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when importing job" });
+        return { success: false, message: "Job with id " + teamtailorId + "could not be imported" };
       }
     }
-    return null;
-  },
+    return { success: false, message: "Invalid type" };
+
+  }
 });
 
 
-export const listQueue = query({
-  args: { workpoolName: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const items = await ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("status", "pending"))
-      .collect();
-    // Sort pending by priority desc, runAt asc, createdAt asc
-    items.sort((a: any, b: any) => {
-      if (b.priority !== a.priority) return b.priority - a.priority;
-      if (a.runAt !== b.runAt) return a.runAt - b.runAt;
-      return a.createdAt - b.createdAt;
-    });
-    return items.slice(0, limit);
-  },
-});
 
-export const listQueueByType = query({
-  args: { workpoolName: v.string(), taskType: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const items = await ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_type_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("taskType", args.taskType).eq("status", "pending"))
-      .collect();
-    items.sort((a: any, b: any) => {
-      if (b.priority !== a.priority) return b.priority - a.priority;
-      if (a.runAt !== b.runAt) return a.runAt - b.runAt;
-      return a.createdAt - b.createdAt;
-    });
-    return items.slice(0, limit);
+export const task_build_profile = internalAction({
+  args: {
+    taskId: v.id("tasks"),
+    type: v.union(v.literal("candidate"), v.literal("job")),
+    id: v.union(v.id("candidates"), v.id("jobs")),
   },
-});
-
-export const listRunning = query({
-  args: { workpoolName: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const items = await ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("status", "running"))
-      .collect();
-    items.sort((a: any, b: any) => a.startedAt - b.startedAt);
-    return items.slice(0, limit);
-  },
-});
+    const { taskId, type, id } = args;
+    //set task to running
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", runAt: Date.now() });
 
-export const listRunningByType = query({
-  args: { workpoolName: v.string(), taskType: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const items = await ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_type_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("taskType", args.taskType).eq("status", "running"))
-      .collect();
-    items.sort((a: any, b: any) => a.startedAt - b.startedAt);
-    return items.slice(0, limit);
-  },
-});
+    if (type === "candidate") {
+      try {
+        const candidateId = id as Id<"candidates">;
+        //update candidate processing task
+        await ctx.runMutation(internal.candidates.setProcessingTask, { candidateId, processingTask: taskId });
+        //Step 1: query candidate source data
+        const candidateSourceData = await ctx.runQuery(api.candidates.getSourceData, { candidateId });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 25, progressMessage: "Queried candidate source data" });
+        //Step 2: build candidate profile
+        const { profile, raw, metadata } = await ctx.runAction(internal.openai.buildCandidateProfile, { assessment: candidateSourceData?.assessment, hubertAnswers: candidateSourceData?.hubertAnswers, resumeSummary: candidateSourceData?.resumeSummary, linkedinSummary: candidateSourceData?.linkedinSummary });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Built candidate profile", metadata: metadata });
 
-export const listCompleted = query({
-  args: { workpoolName: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const rows: any[] = [];
-    for await (const it of ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("status", "succeeded"))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+        //debug print profile
+        console.log("profile", profile);
+        console.log("raw", raw);
+
+        //Step 3: upsert candidate profile
+        await ctx.runMutation(internal.candidates.upsertProfile, {
+          candidateId,
+          raw,
+          metadata,
+          summary: profile.summary,
+          description: profile.description,
+          education: profile.education,
+          workExperience: profile.workExperience,
+          preferences: profile.preferences,
+          aspirations: profile.aspirations,
+          technicalSkills: profile.technicalSkills,
+          softSkills: profile.softSkills,
+        });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 75, progressMessage: "Upserted candidate profile" });
+        //Step 4: enqueue embed profile task
+        await enqueueTask(ctx, "embed_profile", "task", { type: "candidate", id: candidateId }, taskId);
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, stoppedAt: Date.now(), progressMessage: "Queued embed profile task for candidate with id " + id });
+
+      } catch (error) {
+        //add args to error message
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when building candidate profile" });
+        return { success: false, message: "Candidate profile with id " + id + "could not be built" };
+      }
+
+
+
     }
-    rows.sort((a, b) => (b.finishedAt ?? b._creationTime) - (a.finishedAt ?? a._creationTime));
-    return rows;
-  },
+  }
 });
 
-export const listFailed = query({
-  args: { workpoolName: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
+
+
+
+export const task_embed_profile = internalAction({
+  args: {
+    taskId: v.id("tasks"),
+    type: v.union(v.literal("candidate"), v.literal("job")),
+    id: v.union(v.id("candidates"), v.id("jobs")),
+  },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const rows: any[] = [];
-    for await (const it of ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("status", "failed"))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+    const { taskId, type, id } = args;
+    //set task to running
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", runAt: Date.now() });
+
+    if (type === "candidate") {
+      try {
+        const candidateId = id as Id<"candidates">;
+        //update candidate processing task
+        await ctx.runMutation(internal.candidates.setProcessingTask, { candidateId, processingTask: taskId });
+
+        //Step 1: query candidate profile
+        const candidateProfile = await ctx.runQuery(api.candidates.getProfile, { candidateId });
+        if (!candidateProfile) throw new Error("Candidate profile not found");
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 25, progressMessage: "Queried candidate profile" });
+
+        //Step2: check if all fields are present
+        validateCandidateProfile(candidateProfile);
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Validated candidate profile" });
+     
+        //Step 3: embed candidate profile
+        const textsToEmbed = [
+          candidateProfile.summary,
+          candidateProfile.technicalSkills.map((skill) => skill.name).join(", "),
+          candidateProfile.softSkills.map((skill) => skill.name).join(", "),
+          candidateProfile.education.join(", "),
+          candidateProfile.workExperience.join(", "),
+          candidateProfile.preferences.join(", "),
+          candidateProfile.aspirations.join(", ")
+        ];
+        
+        const { embeddings, metadata } = await ctx.runAction(internal.openai.embedMany, { texts: textsToEmbed });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 75, progressMessage: "Embedded candidate profile", metadata });
+
+        //Step 4: enqueue candidate embeddings
+        const sections : CandidateProfileSections[] = ["summary", "technical_skills", "soft_skills", "education", "work_experience", "preferences", "aspirations"];
+        const embeddingPromises = embeddings.map((embedding, index) => 
+          ctx.runMutation(internal.candidates.upsertEmbedding, { 
+            candidateId, 
+            vector: embedding, 
+            section: sections[index], 
+            metadata: metadata
+          })
+        );
+        
+        await Promise.all(embeddingPromises);
+
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, stoppedAt: Date.now(), progressMessage: "Created candidate embeddings" });
+        return { success: true, message: "Candidate profile with id " + id + "embedded" };
+      } catch (error) {
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when embedding candidate profile" });
+        return { success: false, message: "Candidate profile with id " + id + "could not be embedded" };
+      }
+
     }
-    rows.sort((a, b) => (b.finishedAt ?? b._creationTime) - (a.finishedAt ?? a._creationTime));
-    return rows;
-  },
+  }
+
+
+
+
+
+
+
+
 });
 
-export const listCanceled = query({
-  args: { workpoolName: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
+
+export const task_match = internalAction({
+  args: {
+    taskId: v.id("tasks"),
+    candidateId: v.optional(v.string()),
+    jobId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const rows: any[] = [];
-    for await (const it of ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("status", "canceled"))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+    const { taskId, candidateId, jobId } = args;
+    //set task to running
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", runAt: Date.now() });
+
+
+
+  }
+});
+
+
+
+
+
+//API
+
+export const listPaginated = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    workpool: v.optional(v.string()),
+    status: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    const { paginationOpts, workpool, status } = args;
+    
+    // Apply workpool filter if specified
+    if (workpool && workpool !== "all") {
+      const query = ctx.db.query("tasks").withIndex("by_workpool_and_status", (q) => 
+        q.eq("workpool", workpool)
+      );
+      
+      // Apply status filter if specified and not all statuses
+      if (status && status.length > 0 && status.length < 5) { // 5 is the total number of statuses
+        const filteredQuery = query.filter((q) => 
+          q.or(...status.map(s => q.eq(q.field("status"), s)))
+        );
+        return await filteredQuery.order("desc").paginate(paginationOpts);
+      }
+      
+      return await query.order("desc").paginate(paginationOpts);
     }
-    rows.sort((a, b) => (b.finishedAt ?? b._creationTime) - (a.finishedAt ?? a._creationTime));
-    return rows;
-  },
-});
-
-export const listPaused = query({
-  args: { workpoolName: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const rows: any[] = [];
-    for await (const it of ctx.db
-      .query("tasks")
-      .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", args.workpoolName).eq("status", "paused"))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+    
+    // No workpool filter - apply only status filter if specified
+    if (status && status.length > 0 && status.length < 5) {
+      const query = ctx.db.query("tasks").filter((q) => 
+        q.or(...status.map(s => q.eq(q.field("status"), s)))
+      );
+      return await query.order("desc").paginate(paginationOpts);
     }
-    rows.sort((a, b) => (b._creationTime) - (a._creationTime));
-    return rows;
+    
+    // No filters - return all tasks
+    return await ctx.db.query("tasks").order("desc").paginate(paginationOpts);
   },
 });
 
-export const listTasksForEntity = query({
-  args: { entityType: v.string(), entityId: v.string(), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
+
+export const get = query({
+  args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
-    const limit = args.limit ?? 100;
-    const rows: any[] = [];
-    for await (const it of ctx.db.query("tasks").withIndex("by_runAt", (q) => q.gt("runAt", 0))) {
-      const a = (it.args as any) ?? {};
-      if (args.entityType === "candidate" && (a.candidateId === args.entityId)) rows.push(it);
-      if (args.entityType === "job" && (a.jobId === args.entityId)) rows.push(it);
-      if (rows.length >= limit) break;
-    }
-    rows.sort((a, b) => (b._creationTime) - (a._creationTime));
-    return rows;
+    return await ctx.db.get(args.taskId);
   },
 });
 
-export const pauseTask = mutation({
-  args: { taskId: v.string() },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-    if (!row) return null;
-    if (row.status !== "pending") return null;
-    await ctx.db.patch(row._id, { status: "paused" });
-    return null;
-  },
-});
-export const getWorkpoolOverview = query({
-  args: {},
-  returns: v.object({
-    import: v.object({ pending: v.number(), running: v.number(), finished: v.number(), failed: v.number(), canceled: v.number(), paused: v.number() }),
-    build: v.object({ pending: v.number(), running: v.number(), finished: v.number(), failed: v.number(), canceled: v.number(), paused: v.number() }),
-    embed: v.object({ pending: v.number(), running: v.number(), finished: v.number(), failed: v.number(), canceled: v.number(), paused: v.number() }),
-    match: v.object({ pending: v.number(), running: v.number(), finished: v.number(), failed: v.number(), canceled: v.number(), paused: v.number() }),
-  }),
+export const getTasksCount = query({
   handler: async (ctx) => {
-    const pools = ["import", "build", "embed", "match"] as const;
-    const result: any = {};
-    for (const p of pools) {
-      let pending = 0, running = 0, finished = 0, failed = 0, canceled = 0, paused = 0;
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", p as string).eq("status", "pending"))) pending++;
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", p as string).eq("status", "running"))) running++;
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", p as string).eq("status", "succeeded"))) finished++;
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", p as string).eq("status", "failed"))) failed++;
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", p as string).eq("status", "canceled"))) canceled++;
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", p as string).eq("status", "paused"))) paused++;
-      result[p] = { pending, running, finished, failed, canceled, paused };
-    }
-    return result;
+    return (await ctx.db.query("tasks").collect()).length;
   },
 });
 
-export const getItem = query({
-  args: { taskId: v.string() },
-  returns: v.any(),
+export const getFilteredTasksCount = query({
+  args: {
+    workpool: v.optional(v.string()),
+    status: v.optional(v.array(v.string())),
+  },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-  },
-});
-
-export const reorderItem = mutation({
-  args: { taskId: v.string(), newPriority: v.number(), newRunAt: v.optional(v.number()) },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query("tasks")
-      .withIndex("by_taskId", (q) => q.eq("taskId", args.taskId))
-      .unique();
-    if (!row) return null;
-    if (row.status !== "pending") return null; // safe path: only reorder pending
-    const runAt = args.newRunAt ?? Date.now();
-    // Update ordering fields
-    await ctx.db.patch(row._id, { priority: args.newPriority, runAt });
-    return null;
-  },
-});
-
-// Centralized enqueue API validator (must be an object per Convex requirements)
-const enqueueArgsValidator = v.object({
-  taskType: v.union(
-    v.literal("import"),
-    v.literal("build_profile"),
-    v.literal("cv_summarize"),
-    v.literal("embed"),
-    v.literal("match"),
-  ),
-  candidateId: v.optional(v.union(v.id("candidates"), v.string())),
-  jobId: v.optional(v.union(v.id("jobs"), v.string())),
-  resumeUrl: v.optional(v.string()),
-  model: v.optional(v.string()),
-  prompt: v.optional(v.string()),
-  config: v.optional(v.any()),
-  priority: v.optional(v.number()),
-  runAt: v.optional(v.number()),
-  requestedBy: v.optional(v.string()),
-  argsSummary: v.optional(v.any()),
-});
-
-function getPoolForTaskType(taskType: string): Workpool {
-  if (taskType === "import") return importPool;
-  if (taskType === "build_profile") return buildPool;
-  if (taskType === "cv_summarize") return buildPool;
-  if (taskType === "embed") return embedPool;
-  if (taskType === "match") return matchPool;
-  return embedPool;
-}
-
-export const enqueueTask = mutation({
-  args: enqueueArgsValidator,
-  returns: v.object({ taskId: v.string(), workId: v.string() }),
-  handler: async (ctx, args): Promise<{ taskId: string; workId: string }> => {
-    // Build mapping
-    const taskType: string = (args as any).taskType;
-    if (taskType === "import") {
-      const candidateId = (args as any).candidateId;
-      const jobId = (args as any).jobId;
-      if (!!candidateId === !!jobId) throw new Error("Provide either candidateId or jobId for import");
-      const pool = getPoolForTaskType("import");
-      if (candidateId) {
-        const res = await enqueueTrackedAction(
-          ctx,
-          pool,
-          internal.teamtailor.importCandidateToDb,
-          { candidateId },
-          {
-            workpoolName: "import",
-            taskType: "import",
-            priority: (args as any).priority,
-            runAt: (args as any).runAt,
-            requestedBy: (args as any).requestedBy,
-            argsSummary: (args as any).argsSummary ?? { candidateId },
-          }
-        );
-        return res;
-      } else {
-        const res = await enqueueTrackedAction(
-          ctx,
-          pool,
-          internal.teamtailor.importJobToDb,
-          { jobId },
-          {
-            workpoolName: "import",
-            taskType: "import",
-            priority: (args as any).priority,
-            runAt: (args as any).runAt,
-            requestedBy: (args as any).requestedBy,
-            argsSummary: (args as any).argsSummary ?? { jobId },
-          }
-        );
-        return res;
-      }
-    }
-    if (taskType === "build_profile") {
-      const pool = getPoolForTaskType("build_profile");
-      const candidateId = (args as any).candidateId;
-      const jobId = (args as any).jobId;
-      if (!!candidateId === !!jobId) throw new Error("Provide either candidateId or jobId for build_profile");
-      if (candidateId) {
-        const res = await enqueueTrackedAction(
-          ctx,
-          pool,
-          internal.openaiAction.buildProfile,
-          { candidateId },
-          {
-            workpoolName: "build",
-            taskType: "build_profile",
-            priority: (args as any).priority,
-            runAt: (args as any).runAt,
-            requestedBy: (args as any).requestedBy,
-            argsSummary: (args as any).argsSummary ?? { candidateId },
-          }
-        );
-        return res;
-      } else {
-        const res = await enqueueTrackedAction(
-          ctx,
-          pool,
-          internal.openaiAction.buildJobProfile,
-          { jobId },
-          {
-            workpoolName: "build",
-            taskType: "build_profile",
-            priority: (args as any).priority,
-            runAt: (args as any).runAt,
-            requestedBy: (args as any).requestedBy,
-            argsSummary: (args as any).argsSummary ?? { jobId },
-          }
-        );
-        return res;
-      }
-    }
-    if (taskType === "cv_summarize") {
-      const pool = getPoolForTaskType("cv_summarize");
-      const candidateId = (args as any).candidateId;
-      const resumeUrl = (args as any).resumeUrl;
-      if (!candidateId) throw new Error("candidateId required for cv_summarize");
-      const res = await enqueueTrackedAction(
-        ctx,
-        pool,
-        internal.openaiAction.summarizeCv,
-        { candidateId, resumeUrl },
-        {
-          workpoolName: "build",
-          taskType: "cv_summarize",
-          priority: (args as any).priority,
-          runAt: (args as any).runAt,
-          requestedBy: (args as any).requestedBy,
-          argsSummary: (args as any).argsSummary ?? { candidateId, resumeUrl },
-        }
+    const { workpool, status } = args;
+    
+    // Apply workpool filter if specified
+    if (workpool && workpool !== "all") {
+      const query = ctx.db.query("tasks").withIndex("by_workpool_and_status", (q) => 
+        q.eq("workpool", workpool)
       );
-      return res;
-    }
-    if (taskType === "embed") {
-      const pool = getPoolForTaskType("embed");
-      const candidateId = (args as any).candidateId;
-      const jobId = (args as any).jobId;
-      if (!!candidateId === !!jobId) throw new Error("Provide either candidateId or jobId for embed");
-      if (candidateId) {
-        const res = await enqueueTrackedAction(
-          ctx,
-          pool,
-          internal.openaiAction.buildCandidateEmbeddingsWrapper,
-          { candidateId },
-          {
-            workpoolName: "embed",
-            taskType: "embed",
-            priority: (args as any).priority,
-            runAt: (args as any).runAt,
-            requestedBy: (args as any).requestedBy,
-            argsSummary: (args as any).argsSummary ?? { candidateId },
-          }
+      
+      // Apply status filter if specified and not all statuses
+      if (status && status.length > 0 && status.length < 5) { // 5 is the total number of statuses
+        const filteredQuery = query.filter((q) => 
+          q.or(...status.map(s => q.eq(q.field("status"), s)))
         );
-        return res;
-      } else {
-        const res = await enqueueTrackedAction(
-          ctx,
-          pool,
-          internal.openaiAction.buildJobEmbeddingsWrapper,
-          { jobId },
-          {
-            workpoolName: "embed",
-            taskType: "embed",
-            priority: (args as any).priority,
-            runAt: (args as any).runAt,
-            requestedBy: (args as any).requestedBy,
-            argsSummary: (args as any).argsSummary ?? { jobId },
-          }
-        );
-        return res;
+        return (await filteredQuery.collect()).length;
       }
+      
+      return (await query.collect()).length;
     }
-    if (taskType === "match") {
-      const pool = getPoolForTaskType("match");
-      const candidateId = (args as any).candidateId;
-      const jobId = (args as any).jobId;
-      const model = (args as any).model;
-      const prompt = (args as any).prompt;
-      const config = (args as any).config;
-      if (!candidateId || !jobId) throw new Error("candidateId and jobId required for match");
-      const res = await enqueueTrackedAction(
-        ctx,
-        pool,
-        internal.openaiAction.matchCandidateToJob,
-        { candidateId, jobId, model, prompt, config },
-        {
-          workpoolName: "match",
-          taskType: "match",
-          priority: (args as any).priority,
-          runAt: (args as any).runAt,
-          requestedBy: (args as any).requestedBy,
-          argsSummary: (args as any).argsSummary ?? { candidateId, jobId, model, prompt, config },
-        }
+    
+    // No workpool filter - apply only status filter if specified
+    if (status && status.length > 0 && status.length < 5) {
+      const query = ctx.db.query("tasks").filter((q) => 
+        q.or(...status.map(s => q.eq(q.field("status"), s)))
       );
-      return res;
+      return (await query.collect()).length;
     }
-    throw new Error("Unsupported taskType");
+    
+    // No filters - return all tasks count
+    return (await ctx.db.query("tasks").collect()).length;
   },
 });
 
-export async function enqueueTrackedAction<ArgsT extends Record<string, unknown>>(
-  ctx: any,
-  pool: Workpool,
-  fnRef: any,
-  args: ArgsT,
-  options: EnqueueTrackedOptions
-): Promise<{ taskId: string; workId: string }> {
-  const taskId = generateTrackingId();
-  const now = Date.now();
-  const runAt = options.runAt ?? now;
-  const priority = options.priority ?? 0;
-
-  const insertedId = await ctx.db.insert("tasks", {
-    workpoolName: options.workpoolName,
-    taskId,
-    workId: undefined,
-    taskKey: options.taskKey,
-    taskType: options.taskType,
-    fnHandle: "", // informational only; not strictly required
-    fnName: "",
-    fnType: "action",
-    args: args as any,
-    argsSummary: options.argsSummary,
-    runAt,
-    priority,
-    status: "pending",
-    workpoolState: "pending",
-    previousAttempts: 0,
-    progress: 0,
-    progressMessage: undefined,
-    lastHeartbeatAt: undefined,
-    createdAt: now,
-    startedAt: undefined,
-    finishedAt: undefined,
-    canceledAt: undefined,
-    errorSummary: undefined,
-    requestedBy: options.requestedBy,
-  });
-
-  const workId: string = await pool.enqueueAction(ctx, fnRef, { ...args, taskId }, {
-    onComplete: internal.tasks.onComplete as any,
-    context: { taskId },
-    runAt,
-  } as any);  
-
-  await ctx.db.patch(insertedId, { workId });
-  return { taskId, workId };
-}
-
-export async function enqueueTrackedMutation<ArgsT extends Record<string, unknown>>(
-  ctx: any,
-  pool: Workpool,
-  fnRef: any,
-  args: ArgsT,
-  options: EnqueueTrackedOptions
-): Promise<{ taskId: string; workId: string }> {
-  const taskId = generateTrackingId();
-  const now = Date.now();
-  const runAt = options.runAt ?? now;
-  const priority = options.priority ?? 0;
-
-  const insertedId = await ctx.db.insert("tasks", {
-    workpoolName: options.workpoolName,
-    taskId,
-    workId: undefined,
-    taskKey: options.taskKey,
-    taskType: options.taskType,
-    fnHandle: "",
-    fnName: "",
-    fnType: "mutation",
-    args: args as any,
-    argsSummary: options.argsSummary,
-    runAt,
-    priority,
-    status: "pending",
-    workpoolState: "pending",
-    previousAttempts: 0,
-    progress: 0,
-    progressMessage: undefined,
-    lastHeartbeatAt: undefined,
-    createdAt: now,
-    startedAt: undefined,
-    finishedAt: undefined,
-    canceledAt: undefined,
-    errorSummary: undefined,
-    requestedBy: options.requestedBy,
-  });
-
-  const workId: string = await pool.enqueueMutation(ctx, fnRef, { ...args, taskId }, {
-    onComplete: internal.tasks.onComplete as any,
-    context: { taskId },
-    runAt,
-  } as any);
-
-  await ctx.db.patch(insertedId, { workId });
-  return { taskId, workId };
-}
 
 
-export const syncTasksStatus = internalMutation({
-  args: { workpoolName: v.optional(v.string()) },
-  returns: v.null(),
+export const rerunTask = action({
+  args: {
+    taskId: v.id("tasks"),
+  },
   handler: async (ctx, args) => {
-    // Find non-final items (pending, running, cancelRequested)
-    const pools = args.workpoolName ? [args.workpoolName] : ["import", "build", "embed", "match"];
-    for (const poolName of pools) {
-      const pool = getPoolForName(poolName);
-      if (!pool) continue;
-
-      const candidates: Array<any> = [];
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", poolName).eq("status", "pending"))) {
-        if (it.workId) candidates.push(it);
-      }
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", poolName).eq("status", "running"))) {
-        if (it.workId) candidates.push(it);
-      }
-      for await (const it of ctx.db
-        .query("tasks")
-        .withIndex("by_workpool_and_status", (q) => q.eq("workpoolName", poolName).eq("status", "cancelRequested"))) {
-        if (it.workId) candidates.push(it);
-      }
-
-      const ids: string[] = candidates.map((c) => c.workId as string);
-      if (ids.length === 0) continue;
-      const statuses = await pool.statusBatch(ctx, ids as any);
-      for (let i = 0; i < candidates.length; i++) {
-        const it = candidates[i];
-        const st: any = (statuses as any)[i];
-        let workpoolState: string | undefined;
-        let previousAttempts: number | undefined;
-        if (st?.state === "pending" || st?.state === "running" || st?.state === "finished") {
-          workpoolState = st.state;
-          previousAttempts = (st as any).previousAttempts;
-        }
-        await ctx.db.patch(it._id, { workpoolState, previousAttempts });
-      }
-    }
-    return null;
+    await enqueueTaskRerun(ctx, args.taskId);
+    return { success: true, message: "Task rerunned" };
   },
 });

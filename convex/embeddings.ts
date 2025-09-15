@@ -2,6 +2,16 @@ import { mutation, query } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 
+/**
+ * Compares two vectors by doing a dot product.
+ *
+ * Assuming both vectors are normalized to length 1, it will be in [-1, 1].
+ * @returns [-1, 1] based on similarity. (1 is the same, -1 is the opposite)
+ */
+export function compare(vectorA: number[], vectorB: number[]) {
+  return vectorA.reduce((sum, val, idx) => sum + val * vectorB[idx], 0);
+}
+
 
 function cleanText(input: string | undefined | null, maxLen: number): string {
   const s = (input ?? "").replace(/\s+/g, " ").trim();

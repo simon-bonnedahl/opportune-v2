@@ -3,24 +3,27 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePaginatedQuery, useMutation, useQuery } from "convex/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
-import { formatDate, formatShortDate } from "@/lib/format";
+import { formatDate, formatDuration, formatShortDate, timeAgo } from "@/lib/format";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TaskDetailsDialog } from "@/features/tasks/components/task-details-dialog";
-import { TaskTableRow } from "@/features/tasks/components/task-table-row";
+import { TaskTableRow } from "@/components/tasks/task-table-row";
 import { Badge } from "@/components/ui/badge";
-import { MoreHorizontal } from "lucide-react";
+import { Doc, Id } from "@/types";
 
 const POOLS = ["import", "build", "embed", "match"] as const;
 
-export default function WorkpoolsPage() {
+export default function TasksPage() {
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const [range, setRange] = useState<DateRange | undefined>(() => {
 		const now = new Date();
 		const from = new Date(now);
@@ -38,75 +41,47 @@ export default function WorkpoolsPage() {
 		failed: "Failed",
 		canceled: "Canceled",
 	};
-	// Map task.status -> display status
-	const TASK_TO_DISPLAY: Record<string, (typeof FILTER_STATUSES)[number]> = {
-		pending: "queued",
-		running: "running",
-		succeeded: "succeeded",
-		failed: "failed",
-		canceled: "canceled",
-		paused: "canceled",
+
+	const [statusFilter, setStatusFilter] = useState<Set<string>>(() => new Set(FILTER_STATUSES));
+
+	// Get selected task ID from URL params
+	const selectedTaskId = searchParams.get('taskId') as Id<"tasks"> | null;
+
+	// Fetch the selected task with real-time updates
+	const selectedTask = useQuery(
+		api.tasks.get,
+		selectedTaskId ? { taskId: selectedTaskId } : "skip"
+	);
+
+
+
+	const { results, status, loadMore } = usePaginatedQuery(
+		api.tasks.listPaginated,
+		{
+			workpool: poolFilter,
+			status: Array.from(statusFilter),
+		},
+		{ initialNumItems: 50 }
+	)
+
+	const totalCount = useQuery(api.tasks.getFilteredTasksCount, {
+		workpool: poolFilter,
+		status: Array.from(statusFilter),
+	});
+
+	// Functions to handle task selection with URL updates
+	const openTaskDialog = (taskId: Id<"tasks">) => {
+		const params = new URLSearchParams(searchParams);
+		params.set('taskId', taskId);
+		router.push(`/tasks?${params.toString()}`);
 	};
 
-	const [statusFilter, setStatusFilter] = useState<Set<string>>(() => new Set(FILTER_STATUSES as readonly string[]));
-	const [selectedTask, setSelectedTask] = useState<any | null>(null);
-
-	const fromMs = range?.from ? range.from.getTime() : undefined;
-	const toMs = range?.to ? range.to.getTime() : (range?.from ? range.from.getTime() : undefined);
-
-	const { results = [], status, loadMore } = (usePaginatedQuery(
-		api.tasks.listRecentTasksPaginated as any,
-		{ workpoolName: poolFilter === "all" ? undefined : poolFilter, fromMs, toMs } as any,
-		{ initialNumItems: 50 }
-	) as unknown) as { results: any[]; status: "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted"; loadMore: (numItems: number) => Promise<void> };
-
-	const totalCount = useQuery(api.tasks.getTasksCount as any, { 
-		workpoolName: poolFilter === "all" ? undefined : poolFilter, 
-		fromMs, 
-		toMs 
-	} as any) as number | undefined;
-
-	const rerun = useMutation(api.tasks.rerunTask as any) as any;
-
-	const isInitialLoading = status === "LoadingFirstPage";
-	const sentinelRef = useRef<HTMLDivElement | null>(null);
-	const scrollRef = useRef<HTMLDivElement | null>(null);
-	const loadingMoreRef = useRef(false);
-	const [isLoadingMore, setIsLoadingMore] = useState(false);
-	useEffect(() => {
-		const el = sentinelRef.current;
-		const rootEl = scrollRef.current;
-		if (!el) return;
-		const observer = new IntersectionObserver((entries) => {
-			const [entry] = entries;
-			if (entry.isIntersecting && status === "CanLoadMore" && !loadingMoreRef.current) {
-				loadingMoreRef.current = true;
-				setIsLoadingMore(true);
-				Promise.resolve(loadMore(50)).finally(() => {
-					loadingMoreRef.current = false;
-					setIsLoadingMore(false);
-				});
-			}
-		}, { root: rootEl ?? null, rootMargin: "300px" });
-		observer.observe(el);
-		return () => observer.disconnect();
-	}, [status, loadMore, fromMs, toMs, poolFilter]);
-
-	const groupedBadge = useMemo(() => ({
-		queued: "text-yellow-500",
-		running: "text-blue-500",
-		succeeded: "text-green-500",
-		failed: "text-red-500",
-		canceled: "text-neutral-400",
-	} as Record<string, string>), []);
-
-	const filteredResults = useMemo(() => {
-		return (results as any[]).filter((r) => statusFilter.has(TASK_TO_DISPLAY[String(r.status)] ?? ""));
-	}, [results, statusFilter]);
-
-	const totalResults = results.length;
-	const filteredCount = filteredResults.length;
-	const actualTotal = totalCount ?? 0;
+	const closeTaskDialog = () => {
+		const params = new URLSearchParams(searchParams);
+		params.delete('taskId');
+		const newUrl = params.toString() ? `/tasks?${params.toString()}` : '/tasks';
+		router.push(newUrl);
+	};
 
 
 
@@ -123,10 +98,7 @@ export default function WorkpoolsPage() {
 					<Skeleton className="h-4 w-20" />
 				</TableCell>
 				<TableCell className="whitespace-nowrap">
-					<Skeleton className="h-4 w-20" />
-				</TableCell>
-				<TableCell className="whitespace-nowrap">
-					<Skeleton className="h-4 w-12" />
+					<Skeleton className="h-4 w-32" />
 				</TableCell>
 				<TableCell className="whitespace-nowrap">
 					<div className="flex flex-col gap-1">
@@ -146,36 +118,27 @@ export default function WorkpoolsPage() {
 
 
 	return (
-		<div className="w-full px-4 py-8">
+		<div className="w-full px-4 py-4">
 			<Card className="max-w-7xl mx-auto">
-				<div className="flex flex-wrap items-center justify-between gap-3 p-6 border-b">
+				<div className="flex flex-wrap items-center justify-between p-4 border-b">
 					<div className="flex items-center gap-4">
-						<h1 className="text-xl font-semibold">Workpools</h1>
-						<div className="flex items-center gap-2 text-sm text-muted-foreground">
+						<h1 className="text-lg font-semibold">Tasks</h1>
+						<div className="text-md text-muted-foreground">
 							<span>
-								{isInitialLoading ? (
-									"Loading..."
+								{status === "LoadingFirstPage" ? (
+									<Skeleton className="h-4 w-16" />
 								) : (
 									<>
-										{filteredCount} of {actualTotal} tasks
+										{results.length} of {totalCount}
 									</>
 								)}
 							</span>
-							{poolFilter !== "all" && poolFilter !== "import" && (
-								<Badge variant="secondary" className="text-xs">
-									Pool: {poolFilter}
-								</Badge>
-							)}
-							{statusFilter.size < FILTER_STATUSES.length && (
-								<Badge variant="secondary" className="text-xs">
-									{statusFilter.size} status{statusFilter.size !== 1 ? 'es' : ''}
-								</Badge>
-							)}
 						</div>
 					</div>
 					<div className="flex items-center gap-2">
+
 						<Select value={poolFilter} onValueChange={setPoolFilter}>
-							<SelectTrigger className="w-[120px]">
+							<SelectTrigger className="w-[120px]" size="sm">
 								<SelectValue placeholder="Pool" />
 							</SelectTrigger>
 							<SelectContent>
@@ -187,8 +150,25 @@ export default function WorkpoolsPage() {
 						</Select>
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
-								<Button variant="outline" size="sm">
-									Status{statusFilter.size === FILTER_STATUSES.length ? ": All" : `: ${statusFilter.size}`}
+								<Button variant="outline" size="sm" className="flex items-center gap-2">
+									<span>Status</span>
+									<div className="flex -space-x-1">
+										{Array.from(statusFilter).map((status, index) => (
+											<span
+												key={`${status}-${index}`}
+												className={`inline-block size-2.5 rounded-full ${
+													{
+														queued: "bg-yellow-500",
+														running: "bg-blue-500", 
+														succeeded: "bg-emerald-400",
+														failed: "bg-red-500",
+														canceled: "bg-neutral-400"
+													}[status]
+												}`}
+												style={{ zIndex: statusFilter.size - index }}
+											/>
+										))}
+									</div>
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end" className="w-44">
@@ -206,9 +186,8 @@ export default function WorkpoolsPage() {
 											});
 										}}
 									>
-										<span className={`inline-block size-2 rounded-full mr-2 ${
-											{ queued: "bg-yellow-500", running: "bg-blue-500", succeeded: "bg-green-500", failed: "bg-red-500", canceled: "bg-neutral-400" }[s]
-										}`}></span>
+										<span className={`inline-block size-2 rounded-full mr-2 ${{ queued: "bg-yellow-500", running: "bg-blue-500", succeeded: "bg-green-500", failed: "bg-red-500", canceled: "bg-neutral-400" }[s]
+											}`}></span>
 										{STATUS_LABELS[s]}
 									</DropdownMenuCheckboxItem>
 								))}
@@ -222,46 +201,45 @@ export default function WorkpoolsPage() {
 						<DateRangePicker date={range} onDateChange={setRange} />
 					</div>
 				</div>
-				<div ref={scrollRef} className="max-h-[75vh] overflow-y-auto">
-					<Table>
-						<TableBody>
-										{isInitialLoading ? (
+				<div className="max-h-[75vh] overflow-y-auto">
+					<Table >
+						<TableBody >
+							{status === "LoadingFirstPage" ? (
 								<>
 									{Array.from({ length: 5 }).map((_, i) => (
 										<SkeletonRow key={i} />
 									))}
 								</>
 							) : (
-								filteredResults.map((r: any) => (
+								results.map((task) => (
 									<TaskTableRow
-										key={String(r._id)}
-										task={r}
-										onSelect={setSelectedTask}
-										onRerun={rerun}
+										key={String(task._id)}
+										task={task}
+										onTaskClick={openTaskDialog}
+										openTaskDialog={openTaskDialog}
 									/>
 								))
 							)}
-										{isLoadingMore && (
+							{status === "LoadingMore" && (
 								<TableRow>
-									<TableCell colSpan={7} className="p-4 text-center">
+									<TableCell colSpan={6} className="p-4 text-center">
 										<div className="flex items-center justify-center gap-2">
 											<div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-transparent" />
 											<span className="text-sm text-neutral-500">Loading more tasks...</span>
-													</div>
+										</div>
 									</TableCell>
 								</TableRow>
-										)}
+							)}
 						</TableBody>
 					</Table>
-								<div ref={sentinelRef} className="h-6" />
 				</div>
 			</Card>
-			
+
 			{selectedTask && (
-				<TaskDetailsDialog 
-					task={selectedTask} 
-					onClose={() => setSelectedTask(null)}
-					onRerun={rerun}
+				<TaskDetailsDialog
+					task={selectedTask}
+					onClose={closeTaskDialog}
+					onTaskClick={openTaskDialog}
 				/>
 			)}
 		</div>

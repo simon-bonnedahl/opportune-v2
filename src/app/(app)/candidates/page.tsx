@@ -1,140 +1,94 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, @next/next/no-img-element */
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useQuery, useAction, usePaginatedQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useEffect, useRef } from "react";
+import { Progress } from "@/components/ui/progress";
 import { formatDate } from "@/lib/format";
+import type { CandidateDoc, Id, JobDoc, MatchDoc, CandidateProcessingStatus, Doc } from "@/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CandidatesTable } from "@/components/candidates/candidates-table";
+import { useDebounce } from "@/hooks/use-debounce";
+import { toast } from "sonner";
+import { Plus } from "lucide-react";
 
 export default function CandidatesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [queryText, setQueryText] = useState<string>("");
+  const [searchText, setSearchText] = useState<string>("");
+  const debouncedSearchText = useDebounce(searchText, 500);
 
-  const candidates = useQuery(api.teamtailor.getCandidates) as any[] | undefined;
+  const addCandidate = useAction(api.candidates.add);
 
-  const candidateIds = useMemo(
-    () => (candidates ?? []).map((c: any) => c._id as any),
-    [candidates]
-  );
-  const processing = useQuery(
-    api.teamtailor.getProcessingStatusByCandidateIds as any,
-    { candidateIds: (candidateIds as any[]) ?? [] } as any
-  ) as any[] | undefined;
+  const totalCount = useQuery(api.candidates.getCandidatesCount, { search: debouncedSearchText }) as number | undefined;
+  const { results, status, loadMore } = usePaginatedQuery(
+		api.candidates.listPaginated,
+		{ search: debouncedSearchText },
+		{ initialNumItems: 50 }
+	)
 
-  const rows = useMemo(() => {
-    const base = (candidates ?? []).slice();
-    const filtered = queryText.trim().length
-      ? base.filter((r: any) =>
-          (r.name ?? "").toLowerCase().includes(queryText.toLowerCase())
-        )
-      : base;
-    return filtered.sort(
-      (a: any, b: any) =>
-        (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
-    );
-  }, [candidates, queryText]);
+  const handleSearch = (value: string) => {
+    setSearchText(value);
+  };
 
-  const enqueueImport = useMutation(api.teamtailor.enqueueCandidateImports);
-
-  const onAddCandidate = async () => {
-    const id = window.prompt("Teamtailor candidate ID");
-    if (!id) return;
+  const handleAddCandidate = async () => {
+    const teamtailorId = window.prompt("Enter TeamTailor Candidate ID:");
+    if (!teamtailorId?.trim()) return;
+    
     try {
-      await enqueueImport({ candidateIds: [id] } as any);
-    } catch (e) {
-      console.warn(e);
+      await addCandidate({ teamtailorId: teamtailorId.trim() });
+      toast.success("Candidate import started successfully!");
+    } catch (error) {
+      console.error("Failed to add candidate:", error);
+      toast.error("Failed to start candidate import. Please try again.");
     }
   };
 
   return (
-    <div className="w-full px-6 py-8">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-xl font-semibold">Candidates</div>
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Search..."
-            value={queryText}
-            onChange={(e) => setQueryText(e.target.value)}
-            className="h-8 w-56"
-          />
-          <Button variant="outline" size="sm" className="h-8">
-            Date
-          </Button>
-          <Button variant="outline" size="sm" className="h-8">
-            Tags
-          </Button>
-          <Button onClick={onAddCandidate} size="sm" className="h-8">
-            + Add Candidate
-          </Button>
-        </div>
-      </div>
+    <div className="w-full px-4 py-4">
+      <Card className="max-w-7xl mx-auto">
+        <div className="flex flex-wrap items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-semibold">Candidates</h1>
+            <div className="text-md text-muted-foreground">
+              {typeof totalCount === "number" ? (
+                <span>Showing {results.length} of {totalCount} candidates</span>
+              ) : (
+                <Skeleton className="h-4 w-32" />
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Search candidates..."
+              value={searchText}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="w-64"
+            />
+          
+            
+            <Button onClick={handleAddCandidate} size="sm">
+              <Plus className="h-4 w-4" />
 
-      <div className="rounded border border-[var(--border)] overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-accent/40 dark:bg-neutral-900">
-            <tr>
-              <th className="text-left p-2 w-[40%]">Name</th>
-              <th className="text-left p-2">Tags</th>
-              <th className="text-left p-2">Best Match</th>
-              <th className="text-left p-2">Status</th>
-              <th className="text-left p-2">Imported</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r: any) => (
-              <tr
-                key={r._id}
-                className="border-t border-[var(--border)] hover:bg-neutral-900/50 cursor-pointer"
-                onClick={() => setSelectedId(r._id)}
-              >
-                <td className="p-2">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-7 w-7">
-                      {r?.imageUrl ? (
-                        <img src={r.imageUrl} alt={r.name} className="h-full w-full object-cover rounded-full" />
-                      ) : (
-                        <AvatarFallback className="text-[11px]">
-                          {getInitials(r.name)}
-                        </AvatarFallback>
-                      )}
-                    </Avatar>
-                    <div className="font-medium truncate">{r.name}</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="flex flex-wrap gap-1">
-                    {getCandidateTags(r).slice(0, 4).map((t) => (
-                      <Badge key={t} variant="outline" className="px-1 py-0 text-[11px]">
-                        {t}
-                      </Badge>
-                    ))}
-                    {getCandidateTags(r).length > 4 && (
-                      <Badge variant="secondary" className="px-1 py-0 text-[11px]">
-                        +{getCandidateTags(r).length - 4}
-                      </Badge>
-                    )}
-                  </div>
-                </td>
-                <td className="p-2"></td>
-                <td className="p-2">
-                  <StatusPill candidateId={r._id} processing={processing} />
-                </td>
-                <td className="p-2 whitespace-nowrap">
-                  {formatDate(r.updatedAt ?? r._creationTime, { month: "short" })}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+               Add Candidate
+            </Button>
+          </div>
+        </div>
+
+        <CandidatesTable
+          data={results}
+          isLoading={status === "LoadingFirstPage"}
+          onRowClick={setSelectedId}
+        />
+      </Card>
 
       {selectedId && (
         <CandidateDialog id={selectedId} onClose={() => setSelectedId(null)} />
@@ -151,38 +105,12 @@ function getInitials(name?: string) {
   return (first + last).toUpperCase();
 }
 
-function getCandidateTags(row: any): string[] {
-  const tags: string[] = [];
-  const attrs = row?.rawData?.attributes ?? {};
-  if (Array.isArray(attrs?.tags)) {
-    for (const t of attrs.tags) if (typeof t === "string") tags.push(t);
-  }
-  const city: string | undefined = attrs?.city || attrs?.location || attrs?.["location-name"];
-  if (city) tags.push(city);
-  return tags;
-}
-
-// Best match column intentionally left blank for now
-
-function StatusPill({ candidateId, processing }: { candidateId: string; processing: any[] | undefined }) {
-  const row = (processing ?? []).find((p: any) => (p?.candidateId as any) === (candidateId as any));
-  const processed = !!row?.processed;
-  const inProc = Array.isArray(row?.inProcess) && row.inProcess.length > 0;
-  const label = processed ? "Processed" : inProc ? "Processing" : "Pending";
-  const color = processed ? "bg-emerald-500" : inProc ? "bg-blue-500 animate-pulse" : "bg-yellow-500";
-  return (
-    <div className="inline-flex items-center gap-2 text-xs">
-      <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
-      {label}
-    </div>
-  );
-}
-
 function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const [candidate] = (useQuery(api.candidates.getProfilesByCandidateIds as any, { candidateIds: [id as any] } as any) as any[] | undefined) ?? [];
-  const [source] = (useQuery(api.candidates.getSourceDataByCandidateIds as any, { candidateIds: [id as any] } as any) as any[] | undefined) ?? [];
-  const allCandidates = useQuery(api.teamtailor.getCandidates) as any[] | undefined;
-  const core = (allCandidates ?? []).find((c: any) => String(c._id) === String(id));
+  type CandidateProfileDoc = Doc<"candidateProfiles">;
+  type CandidateSourceData = Doc<"candidateSourceData">;
+  const [candidate] = (useQuery(api.candidates.getProfilesByCandidateIds, { candidateIds: [id as unknown as Id<"candidates">] }) as CandidateProfileDoc[] | undefined) ?? [];
+  const [source] = (useQuery(api.candidates.getSourceDataByCandidateIds, { candidateIds: [id as unknown as Id<"candidates">] }) as CandidateSourceData[] | undefined) ?? [];
+  const core = useQuery(api.candidates.getCandidateById, { candidateId: id as unknown as Id<"candidates"> }) as CandidateDoc | undefined;
   const [open, setOpen] = useState(true);
   const close = () => {
     setOpen(false);
@@ -193,10 +121,23 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const importedAt = (core?.updatedAt ?? candidate?.updatedAt)
     ? new Date((core?.updatedAt ?? candidate?.updatedAt) as number).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     : "";
-  const matches = useQuery(api.matches.listMatchesForCandidate as any, { candidateId: id as any, limit: 100 } as any) as any[] | undefined;
-  const jobs = useQuery(api.teamtailor.getJobs) as any[] | undefined;
-  const matchRows = (matches ?? []).map((m: any) => {
-    const job = (jobs ?? []).find((j: any) => String(j._id) === String(m.jobId));
+  const matches = useQuery(api.matches.listMatchesForCandidate, { candidateId: id as unknown as Id<"candidates">, limit: 100 }) as MatchDoc[] | undefined;
+  const [selectedModel, setSelectedModel] = useState<string>("gpt-5");
+  const availableModels = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of matches ?? []) {
+      const v = typeof m?.model === "string" ? m.model : undefined;
+      if (v) set.add(v);
+    }
+    set.add("gpt-5");
+    return Array.from(set).sort();
+  }, [matches]);
+  const filteredMatches = useMemo(() => {
+    return (matches ?? []).filter((m) => ((m?.model ?? "unknown") === selectedModel));
+  }, [matches, selectedModel]);
+  const jobs = useQuery(api.jobs.getJobs) as JobDoc[] | undefined;
+  const matchRows = (filteredMatches ?? []).map((m) => {
+    const job = (jobs ?? []).find((j) => String(j._id) === String(m.jobId));
     const title = job?.rawData?.attributes?.title ?? String(m.jobId);
     const locations: string[] = [];
     const attrs = job?.rawData?.attributes ?? {};
@@ -237,6 +178,16 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
               <div className="px-2 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Input placeholder="Search..." className="h-8 w-60" />
+                  <Select value={selectedModel} onValueChange={setSelectedModel}>
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="Model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button variant="outline" size="sm" className="h-8">Default</Button>
                   <Button variant="outline" size="sm" className="h-8">Date</Button>
                   <Button variant="outline" size="sm" className="h-8">Tags</Button>
@@ -306,29 +257,44 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
+                  {candidate?.description && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Description</div>
+                      <p className="whitespace-pre-wrap">{candidate.description}</p>
+                    </div>
+                  )}
+
                   {Array.isArray(candidate?.education) && candidate.education.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Education</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {candidate.education.map((e: any, i: number) => (
+                        {candidate.education.map((e, i: number) => (
                           <li key={i} className="space-y-0.5">
-                            <div className="font-medium">{e?.degree || e?.field || e?.institution || "Education"}</div>
-                            <div className="text-neutral-400">
-                              {[e?.institution, e?.field].filter(Boolean).join(" • ")}
-                            </div>
-                            <div className="text-neutral-500">{[e?.startDate, e?.endDate].filter(Boolean).join(" – ")}</div>
-                            {e?.notes && <div className="whitespace-pre-wrap">{e.notes}</div>}
+                            <div className="font-medium">{e || "Education"}</div>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.skills) && candidate.skills.length > 0 && (
+                  {Array.isArray(candidate?.technicalSkills) && candidate.technicalSkills.length > 0 && (
                     <div className="space-y-2">
-                      <div className="font-medium">Skills</div>
+                      <div className="font-medium">Technical Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {candidate.skills.map((s: any, i: number) => (
+                        {candidate.technicalSkills.map((s, i: number) => (
+                          <Badge key={i} variant="outline" className="px-2 py-1">
+                            {s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {Array.isArray(candidate?.softSkills) && candidate.softSkills.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Soft Skills</div>
+                      <div className="flex flex-wrap gap-2">
+                        {candidate.softSkills.map((s, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
                             {s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}
                           </Badge>
@@ -341,24 +307,42 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     <div className="space-y-2">
                       <div className="font-medium">Work Experience</div>
                       <ul className="space-y-3 list-disc pl-5">
-                        {candidate.workExperience.map((w: any, i: number) => (
+                        {candidate.workExperience.map((w, i: number) => (
                           <li key={i} className="space-y-1">
-                            <div className="font-medium">{[w?.title, w?.company].filter(Boolean).join(" @ ")}</div>
-                            <div className="text-neutral-500">{[w?.startDate, w?.endDate].filter(Boolean).join(" – ")}</div>
-                            {Array.isArray(w?.responsibilities) && w.responsibilities.length > 0 && (
-                              <ul className="list-disc pl-5 space-y-1">
-                                {w.responsibilities.map((r: string, j: number) => (
-                                  <li key={j} className="whitespace-pre-wrap">{r}</li>
-                                ))}
-                              </ul>
-                            )}
+                            <div className="font-medium">{w || "Work Experience"}</div>
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  {!candidate?.summary && (!candidate?.skills || candidate.skills.length === 0) && (
+                  {Array.isArray(candidate?.preferences) && candidate.preferences.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Preferences</div>
+                      <ul className="space-y-2 list-disc pl-5">
+                        {candidate.preferences.map((p, i: number) => (
+                          <li key={i} className="space-y-1">
+                            <div className="font-medium">{p || "Preference"}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {Array.isArray(candidate?.aspirations) && candidate.aspirations.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Aspirations</div>
+                      <ul className="space-y-2 list-disc pl-5">
+                        {candidate.aspirations.map((a, i: number) => (
+                          <li key={i} className="space-y-1">
+                            <div className="font-medium">{a || "Aspiration"}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {!candidate?.summary && !candidate?.description && (!candidate?.technicalSkills || candidate.technicalSkills.length === 0) && (!candidate?.softSkills || candidate.softSkills.length === 0) && (
                     <div className="text-sm text-neutral-400">No profile yet</div>
                   )}
                 </div>
@@ -377,19 +361,13 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
               )}
             </TabsContent>
             <TabsContent value="cv" className="overflow-y-auto p-3">
-              {source?.cv?.summary ? (
+              {source?.resumeSummary ? (
                 <div className="space-y-2 text-sm">
-                  <div className="font-medium">CV Summary</div>
-                  {typeof source.cv.summary === "string" ? (
-                    <p className="whitespace-pre-wrap">{source.cv.summary}</p>
-                  ) : (
-                    <pre className="bg-neutral-900/60 rounded p-3 overflow-x-auto text-xs">
-{JSON.stringify(source.cv.summary, null, 2)}
-                    </pre>
-                  )}
+                  <div className="font-medium">Resume Summary</div>
+                  <p className="whitespace-pre-wrap">{source.resumeSummary}</p>
                 </div>
               ) : (
-                <div className="text-sm text-neutral-400">No CV</div>
+                <div className="text-sm text-neutral-400">No resume summary available</div>
               )}
             </TabsContent>
           </Tabs>

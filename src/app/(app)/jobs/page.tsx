@@ -1,127 +1,149 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, @next/next/no-img-element */
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { formatDate } from "@/lib/format";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { CandidateDoc, Id, JobDoc, JobProcessingStatus, JobProfileDoc } from "@/types";
+import { JobsTable } from "@/components/jobs/jobs-table";
+import { useDebounce } from "@/hooks/use-debounce";
+import { toast } from "sonner";
 
 export default function JobsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [queryText, setQueryText] = useState<string>("");
+  const [searchText, setSearchText] = useState<string>("");
+  const debouncedSearchText = useDebounce(searchText, 500);
+  const [sortMode, setSortMode] = useState<"updated-at" | "created-at">("updated-at");
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    perPage: 25,
+    totalPages: 1,
+    totalCount: 0,
+    hasNext: false,
+    hasPrev: false,
+  });
+  const [jobsData, setJobsData] = useState<JobDoc[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const jobs = useQuery(api.teamtailor.getJobs) as any[] | undefined;
-  const jobIds = useMemo(() => (jobs ?? []).map((j: any) => j._id as any), [jobs]);
-  const processing = useQuery(api.teamtailor.getProcessingStatusByJobIds as any, { jobIds: (jobIds as any[]) ?? [] } as any) as any[] | undefined;
+  const addJob = useAction(api.jobs.add);
 
-  const rows = useMemo(() => {
-    const base = (jobs ?? []).slice();
-    const filtered = queryText.trim().length
-      ? base.filter((r: any) =>
-          (r?.rawData?.attributes?.title ?? "").toLowerCase().includes(queryText.toLowerCase())
-        )
-      : base;
-    return filtered.sort(
-      (a: any, b: any) =>
-        (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)
-    );
-  }, [jobs, queryText]);
+  const totalCount = useQuery(api.jobs.getJobsCount, { search: debouncedSearchText }) as number | undefined;
+  const jobsQuery = useQuery(api.jobs.listJobsPaginated, {
+    search: debouncedSearchText,
+    page: pagination.currentPage,
+    perPage: pagination.perPage,
+    sortBy: `-${sortMode}`,
+  });
 
-  const enqueueJobImport = useMutation(api.teamtailor.enqueueJobImports);
-  const onAddJob = async () => {
-    const id = window.prompt("Teamtailor job ID");
-    if (!id) return;
+  // Get processing statuses for the current page of jobs
+  const jobIds = jobsData.map(j => j._id);
+  const processingStatuses = useQuery(api.jobs.getProcessingStatusByJobIds, { 
+    jobIds: jobIds as Id<"jobs">[] 
+  }) as Array<{
+    jobId: string;
+    status: "queued" | "running" | "succeeded" | "failed" | "canceled" | "none" | "unknown";
+    progress: number;
+    progressMessage: string;
+    errorMessage: string;
+  }> | undefined;
+
+  // Update jobs data when query results change
+  useEffect(() => {
+    if (jobsQuery) {
+      setJobsData(jobsQuery.jobs);
+      setPagination(jobsQuery.pagination);
+    }
+  }, [jobsQuery]);
+
+  // Reset pagination when search text changes (debounced)
+  useEffect(() => {
+    setPagination(prev => ({ ...prev, currentPage: 1 }));
+  }, [debouncedSearchText]);
+
+  const handleSearch = (value: string) => {
+    setSearchText(value);
+  };
+
+  const handlePageChange = (page: number, perPage: number, sort?: string) => {
+    setPagination(prev => ({ ...prev, currentPage: page, perPage }));
+  };
+
+  const handleSortModeChange = (newSortMode: "updated-at" | "created-at") => {
+    setSortMode(newSortMode);
+    setPagination(prev => ({ ...prev, currentPage: 1 })); // Reset to page 1 when changing sort
+  };
+
+  const handleAddJob = async () => {
+    const teamtailorId = window.prompt("Enter TeamTailor Job ID:");
+    if (!teamtailorId?.trim()) return;
+    
     try {
-      await enqueueJobImport({ jobIds: [id] } as any);
-    } catch (e) {
-      console.warn(e);
+      await addJob({ teamtailorId: teamtailorId.trim() });
+      toast.success("Job import started successfully!");
+    } catch (error) {
+      console.error("Failed to add job:", error);
+      toast.error("Failed to start job import. Please try again.");
     }
   };
 
   return (
-    <div className="w-full px-6 py-8">
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-xl font-semibold">Jobs</div>
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Search..."
-            value={queryText}
-            onChange={(e) => setQueryText(e.target.value)}
-            className="h-8 w-56"
-          />
-          <Button variant="outline" size="sm" className="h-8">
-            Date
-          </Button>
-          <Button variant="outline" size="sm" className="h-8">
-            Tags
-          </Button>
-          <Button onClick={onAddJob} size="sm" className="h-8">
-            + Add Job
-          </Button>
+    <div className="w-full px-4 py-4">
+      <Card className="max-w-7xl mx-auto">
+        <div className="flex flex-wrap items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-semibold">Jobs</h1>
+            <div className="text-md text-muted-foreground">
+              {typeof totalCount === "number" ? (
+                <span>Showing {jobsData.length} of {totalCount} jobs</span>
+              ) : (
+                <Skeleton className="h-4 w-32" />
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Search jobs..."
+              value={searchText}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="w-64"
+            />
+            
+            <Select value={sortMode} onValueChange={handleSortModeChange}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="updated-at">Last Updated</SelectItem>
+                <SelectItem value="created-at">Date Created</SelectItem>
+              </SelectContent>
+            </Select>
+            
+            <Button onClick={handleAddJob} size="sm">
+              + Add Job
+            </Button>
+          </div>
         </div>
-      </div>
 
-      <div className="rounded border border-[var(--border)] overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-accent/40 dark:bg-neutral-900">
-            <tr>
-              <th className="text-left p-2 w-[40%]">Title</th>
-              <th className="text-left p-2">Tags</th>
-              <th className="text-left p-2">Best Match</th>
-              <th className="text-left p-2">Status</th>
-              <th className="text-left p-2">Imported</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r: any) => (
-              <tr
-                key={r._id}
-                className="border-t border-[var(--border)] hover:bg-neutral-900/50 cursor-pointer"
-                onClick={() => setSelectedId(r._id)}
-              >
-                <td className="p-2">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-7 w-7">
-                      <AvatarFallback className="text-[11px]">
-                        {getInitials(r?.rawData?.attributes?.title ?? String(r._id))}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="font-medium truncate">{r?.rawData?.attributes?.title ?? r._id}</div>
-                  </div>
-                </td>
-                <td className="p-2">
-                  <div className="flex flex-wrap gap-1">
-                    {getJobTags(r).slice(0, 4).map((t) => (
-                      <Badge key={t} variant="outline" className="px-1 py-0 text-[11px]">
-                        {t}
-                      </Badge>
-                    ))}
-                    {getJobTags(r).length > 4 && (
-                      <Badge variant="secondary" className="px-1 py-0 text-[11px]">
-                        +{getJobTags(r).length - 4}
-                      </Badge>
-                    )}
-                  </div>
-                </td>
-                <td className="p-2"></td>
-                <td className="p-2">
-                  <JobStatusPill jobId={r._id} processing={processing} />
-                </td>
-                <td className="p-2 whitespace-nowrap">
-                  {formatDate(r.updatedAt ?? r._creationTime, { month: "short" })}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        <JobsTable
+          data={jobsData}
+          isLoading={isLoading}
+          pagination={pagination}
+          onPageChange={handlePageChange}
+          onRowClick={setSelectedId}
+          processingStatuses={processingStatuses || []}
+        />
+      </Card>
 
       {selectedId && <JobDialog id={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
@@ -136,49 +158,37 @@ function getInitials(text?: string) {
   return (first + last).toUpperCase();
 }
 
-function getJobTags(row: any): string[] {
-  const tags: string[] = [];
-  const attrs = row?.rawData?.attributes ?? {};
-  if (Array.isArray(attrs?.tags)) {
-    for (const t of attrs.tags) if (typeof t === "string") tags.push(t);
-  }
-  if (typeof attrs?.status === "string") tags.push(attrs.status);
-  if (typeof attrs?.location === "string") tags.push(attrs.location);
-  if (typeof attrs?.["location-name"] === "string") tags.push(attrs["location-name"]);
-  if (typeof attrs?.department === "string") tags.push(attrs.department);
-  return tags;
-}
-
-// Best match column intentionally left blank for now
-
-function JobStatusPill({ jobId, processing }: { jobId: string; processing: any[] | undefined }) {
-  const row = (processing ?? []).find((p: any) => (p?.jobId as any) === (jobId as any));
-  const processed = !!row?.processed;
-  const inProc = Array.isArray(row?.inProcess) && row.inProcess.length > 0;
-  const label = processed ? "Processed" : inProc ? "Processing" : "Pending";
-  const color = processed ? "bg-emerald-500" : inProc ? "bg-blue-500 animate-pulse" : "bg-yellow-500";
-  return (
-    <div className="inline-flex items-center gap-2 text-xs">
-      <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
-      {label}
-    </div>
-  );
-}
-
 function JobDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const [job] = (useQuery(api.jobs.getJobProfilesByJobIds as any, { jobIds: [id as any] } as any) as any[] | undefined) ?? [];
-  const [source] = (useQuery(api.teamtailor.getJobSourceDataByJobIds as any, { jobIds: [id as any] } as any) as any[] | undefined) ?? [];
-  const core = (useQuery(api.teamtailor.getJobs) as any[] | undefined)?.find((j: any) => String(j._id) === String(id));
-  const matches = useQuery(api.matches.listMatchesForJob as any, { jobId: id as any, limit: 100 } as any) as any[] | undefined;
-  const candidates = useQuery(api.teamtailor.getCandidates) as any[] | undefined;
+  const [job] = (useQuery(api.jobs.getJobProfilesByJobIds, { jobIds: [id as unknown as Id<"jobs">] }) as JobProfileDoc[] | undefined) ?? [];
+  type JobSourceData = {
+    jobId: Id<"jobs">;
+    body?: string;
+    links?: Record<string, string>;
+    tags?: string[];
+    recruiterEmail?: string;
+    remoteStatus?: string;
+    languageCode?: string;
+    mailbox?: string;
+    humanStatus?: string;
+    internal?: boolean;
+    createdAt?: number;
+    startDate?: number;
+    endDate?: number;
+    updatedAt: number;
+  };
+  // Note: Job source data query not available in new API yet
+  const source = null;
+  const core = useQuery(api.jobs.getJobById, { jobId: id as unknown as Id<"jobs"> }) as JobDoc | undefined;
+  const matches = useQuery(api.matches.listMatchesForJob, { jobId: id as unknown as Id<"jobs">, limit: 100 }) as import("@/types").MatchDoc[] | undefined;
+  const candidates = useQuery(api.candidates.list) as CandidateDoc[] | undefined;
   const [open, setOpen] = useState(true);
   const close = () => { setOpen(false); onClose(); };
   const title = core?.rawData?.attributes?.title ?? core?.title ?? "Job";
-  const matchRows = (matches ?? []).map((m: any) => {
-    const cand = (candidates ?? []).find((c: any) => String(c._id) === String(m.candidateId));
+  const matchRows = (matches ?? []).map((m) => {
+    const cand = (candidates ?? []).find((c) => String(c._id) === String(m.candidateId));
     const name = cand?.name ?? String(m.candidateId);
     const matchedAt = new Date(m.updatedAt ?? m._creationTime).toLocaleString();
-    const importedAt = cand ? new Date(cand.updatedAt ?? cand._creationTime).toLocaleDateString() : "";
+    const importedAt = cand ? new Date((cand as CandidateDoc).updatedAt ?? (cand as CandidateDoc)._creationTime).toLocaleDateString() : "";
     return {
       id: String(m._id),
       name,
@@ -280,7 +290,7 @@ function JobDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     <div className="space-y-2">
                       <div className="font-medium">Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {job.skills.map((s: any, i: number) => (
+                        {job.skills.map((s, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">{s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}</Badge>
                         ))}
                       </div>

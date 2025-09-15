@@ -1,6 +1,43 @@
-import { internalMutation, query } from "./_generated/server";
+import { action, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { enqueueTask } from "./tasks";
+import { api } from "./_generated/api";
 
+
+export const createJob = internalMutation({
+  args: {
+    teamtailorId: v.string(), 
+    title: v.optional(v.string()),
+    company: v.optional(v.string()),
+    location: v.optional(v.string()),
+    rawData: v.any(),
+    processingTask: v.optional(v.id("tasks")),
+    updatedAtTT: v.number(),
+    createdAtTT: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existingJob = await ctx.db
+      .query("jobs")
+      .withIndex("by_teamtailor_id", (q) => q.eq("teamtailorId", args.teamtailorId))
+      .first();
+    
+    if(existingJob) 
+      throw new Error("Job already exists with teamtailor id " + args.teamtailorId);
+   
+    const jobId = await ctx.db.insert("jobs", {
+      teamtailorId: args.teamtailorId,
+      title: args.title,
+      company: args.company,
+      location: args.location,
+      rawData: args.rawData,
+      processingTask: args.processingTask,
+      updatedAt: Date.now(),
+      updatedAtTT: args.updatedAtTT,
+      createdAtTT: args.createdAtTT,
+    } );
+    return jobId;
+  },
+});
 export const upsertJobProfile = internalMutation({
   args: {
     jobId: v.id("jobs"),
@@ -178,6 +215,156 @@ export const setJobProcessingStatus = internalMutation({
   handler: async (ctx, args) => {
     try { await ctx.db.patch(args.jobId as any, { processingStatus: args.processingStatus } as any); } catch {}
     return null;
+  },
+});
+
+// API Actions
+export const add = action({
+  args: {
+    teamtailorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await enqueueTask(ctx, "import", "user", { teamtailorId: args.teamtailorId, type: "job" });
+  }
+});
+
+export const addMany = action({
+  args: {
+    teamtailorIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    for (const teamtailorId of args.teamtailorIds) {
+      await enqueueTask(ctx, "import", "user", { teamtailorId: teamtailorId, type: "job" });
+    }
+  }
+});
+
+// New queries for jobs page with search and pagination
+export const listJobsPaginated = query({
+  args: {
+    search: v.optional(v.string()),
+    page: v.optional(v.number()),
+    perPage: v.optional(v.number()),
+    sortBy: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const page = args.page ?? 1;
+    const perPage = args.perPage ?? 25;
+    const search = args.search?.toLowerCase().trim();
+    const sortBy = args.sortBy ?? "-updatedAt";
+
+    let jobs = await ctx.db.query("jobs").collect();
+
+    // Apply search filter
+    if (search) {
+      jobs = jobs.filter((job) => {
+        const title = job?.rawData?.attributes?.title?.toLowerCase() ?? "";
+        const company = job?.rawData?.attributes?.company?.toLowerCase() ?? "";
+        const location = job?.rawData?.attributes?.location?.toLowerCase() ?? "";
+        const department = job?.rawData?.attributes?.department?.toLowerCase() ?? "";
+        return title.includes(search) || company.includes(search) || location.includes(search) || department.includes(search);
+      });
+    }
+
+    // Apply sorting
+    jobs.sort((a, b) => {
+      if (sortBy === "-updatedAt") {
+        return (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime);
+      } else if (sortBy === "updatedAt") {
+        return (a.updatedAt ?? a._creationTime) - (b.updatedAt ?? b._creationTime);
+      } else if (sortBy === "-createdAt") {
+        return b._creationTime - a._creationTime;
+      } else if (sortBy === "createdAt") {
+        return a._creationTime - b._creationTime;
+      } else if (sortBy === "title") {
+        const titleA = a?.rawData?.attributes?.title ?? "";
+        const titleB = b?.rawData?.attributes?.title ?? "";
+        return titleA.localeCompare(titleB);
+      } else if (sortBy === "-title") {
+        const titleA = a?.rawData?.attributes?.title ?? "";
+        const titleB = b?.rawData?.attributes?.title ?? "";
+        return titleB.localeCompare(titleA);
+      }
+      return 0;
+    });
+
+    // Apply pagination
+    const totalCount = jobs.length;
+    const totalPages = Math.ceil(totalCount / perPage);
+    const startIndex = (page - 1) * perPage;
+    const endIndex = startIndex + perPage;
+    const paginatedJobs = jobs.slice(startIndex, endIndex);
+
+    return {
+      jobs: paginatedJobs,
+      pagination: {
+        currentPage: page,
+        perPage,
+        totalPages,
+        totalCount,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    };
+  },
+});
+
+export const getJobsCount = query({
+  args: {
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const search = args.search?.toLowerCase().trim();
+    
+    let jobs = await ctx.db.query("jobs").collect();
+
+    if (search) {
+      jobs = jobs.filter((job) => {
+        const title = job?.rawData?.attributes?.title?.toLowerCase() ?? "";
+        const company = job?.rawData?.attributes?.company?.toLowerCase() ?? "";
+        const location = job?.rawData?.attributes?.location?.toLowerCase() ?? "";
+        const department = job?.rawData?.attributes?.department?.toLowerCase() ?? "";
+        return title.includes(search) || company.includes(search) || location.includes(search) || department.includes(search);
+      });
+    }
+
+    return jobs.length;
+  },
+});
+
+export const getJobById = query({
+  args: { jobId: v.id("jobs") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.jobId);
+  },
+});
+
+export const getProcessingStatusByJobIds = query({
+  args: { jobIds: v.array(v.id("jobs")) },
+  handler: async (ctx, args) => {
+    const processingStatuses = [];
+    for (const jobId of args.jobIds) {
+      const job = await ctx.db.get(jobId);
+      if (job?.processingTask) {
+        const task = await ctx.db.get(job.processingTask);
+        processingStatuses.push({
+          jobId,
+          status: task?.status || "unknown",
+          progress: task?.progress || 0,
+          progressMessage: task?.progressMessage || "",
+          errorMessage: task?.errorMessage || "",
+        });
+      } else {
+        processingStatuses.push({
+          jobId,
+          status: "none",
+          progress: 0,
+          progressMessage: "",
+          errorMessage: "",
+        });
+      }
+    }
+    return processingStatuses;
   },
 });
 
