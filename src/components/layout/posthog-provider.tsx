@@ -42,7 +42,7 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
             debug: process.env.NODE_ENV === 'development',
             autocapture: false,
             disable_session_recording: true,
-            loaded: function(ph) {
+            loaded: function() {
               if (process.env.NODE_ENV === 'development') {
                 console.log('PostHog loaded successfully');
               }

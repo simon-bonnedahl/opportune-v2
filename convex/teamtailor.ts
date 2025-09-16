@@ -9,6 +9,43 @@ const baseApiUrl = process.env.TEAMTAILOR_BASE_URL || "https://api.teamtailor.co
 const xameraTeamtailorId = "Epgs55TVBkQ"
 const baseWebUrl = process.env.TEAMTAILOR_BASE_WEB_URL || "https://app.teamtailor.com/companies/" + xameraTeamtailorId;
 
+function parseTeamtailorBody(text: string) {
+
+    function sanitizeKey(key: string): string {
+        return key
+          .normalize("NFD")              
+          .replace(/[\u0300-\u036f]/g, '') 
+          .replace(/[^\x20-\x7E]/g, '')   
+          .replace(/\s+/g, '_')          
+          .toLowerCase();                
+      }
+
+    const cleaned = text.replace(/\\n/g, '\n');
+    const lines = cleaned.split('\n');
+    const result: Record<string, string> = {};
+    let currentKey: string | null = null;
+  
+    for (let line of lines) {
+      line = line.trim();
+      if (line === '') continue;
+  
+      if (line.includes(':')) {
+        const [key, ...rest] = line.split(':');
+        const sanitizedKey = sanitizeKey(key.trim());
+        currentKey = sanitizedKey;
+        const value = rest.join(':').trim();
+        result[sanitizedKey] = value || '';
+      } else if (currentKey) {
+        result[currentKey] += '\n' + line;
+      }
+    }
+  
+    return result;
+  }
+  
+  
+
+  
 async function fetchAllPagesFromTeamtailor(url: string) {
     const apiKey = process.env.TEAMTAILOR_API_KEY;
     
@@ -54,7 +91,6 @@ async function fetchPageFromTeamtailor(url: string, page: number = 1, perPage: n
     });
 
     if (!response.ok) {
-        console.log(response);
         throw new Error(`TeamTailor API error: ${response.status} ${response.statusText}`);
     }
 
@@ -203,11 +239,32 @@ export const importJob = internalAction({
         });
         const jobJson = await job.json();
 
+        //formats of titles:
+        // 977633147 - Mekkonstruktör - Emhart Glass
+        // 664816070 - Teknisk dokumentatör - Saab Dynamics - Peter Anderstedt - (Hanna Holm)
+        // 549170262 - Systemingenjör - Saab Kockums- Andreas Karlsson - (Selma Mattsson)
+        // 995924269 - Azure Infrastructure Engineer - Åhléns AB
+
+        const titleParts = jobJson.data.attributes.title.split("-").map((part: string) => part.trim());
+        const orderNumber = titleParts[0];
+        const title = titleParts[1];
+        const companyName = titleParts[2];
+        const clientName = titleParts[3];
+        const responsible = titleParts[4];
+
+        const body = parseTeamtailorBody(jobJson.data.attributes.body);
+
+        
         return {
-            title: jobJson.data.attributes.title,
+            teamtailorTitle: jobJson.data.attributes.title,
+            title: title,
+            companyName: companyName,
+            clientName: clientName,
+            responsible: responsible,
+            orderNumber: orderNumber,
+            body: body,
             status: jobJson.data.attributes.status,
-            department: jobJson.data.attributes.department,
-            location: jobJson.data.attributes.location,
+            recruiterEmail: jobJson.data.attributes["recruiter-email"],
             updatedAtTT: Date.parse(jobJson.data.attributes["updated-at"]),
             createdAtTT: Date.parse(jobJson.data.attributes["created-at"]),
             rawData: jobJson.data,
@@ -277,7 +334,6 @@ export const listJobsFromTeamtailor = action({
         const filter = args.filter || "filter[status]=all";
         
         const response = await fetchPageFromTeamtailor(`${baseApiUrl}/jobs`, page, perPage, sort, filter);
-        console.log("RESPONSE:", response);
         const jobs = response.data.map((job: any) => {
             return {
                 id: job.id,
@@ -285,6 +341,7 @@ export const listJobsFromTeamtailor = action({
                 internalName: job.attributes["internal-name"],
                 status: job.attributes.status,
                 department: job.attributes.department,
+                bodyLength: job.attributes.body.length,
                 location: job.attributes.location,
                 updatedAtTT: Date.parse(job.attributes["updated-at"]),
                 createdAtTT: Date.parse(job.attributes["created-at"]),

@@ -1,15 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
 import { format } from "date-fns";
-import { ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { TeamTailorCandidate } from "@/types/teamtailor";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import Image from "next/image";
 
 
 interface CandidatesTableProps {
@@ -144,11 +143,12 @@ export function CandidatesTable({
                     size="icon"
                     onClick={() => window.open(candidate.link, "_blank")}
                   >
-                    <img
+                    <Image
                       src="/images/teamtailor_logo.png"
                       alt="Teamtailor"
+                      width={20}
+                      height={20}
                       className="h-5 w-5 rounded-full"
-                      style={{ display: "inline-block" }}
                     />
                   </Button>
                 </TableCell>

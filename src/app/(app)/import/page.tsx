@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAction } from "convex/react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { CandidatesTable } from "@/components/import/candidates-table";
 import { JobsTable } from "@/components/import/jobs-table";
 import { ImportConfirmationDialog } from "@/components/import/import-confirmation-dialog";
 import { api } from "../../../../convex/_generated/api";
+import type { TeamTailorCandidate, TeamTailorJob } from "@/types/teamtailor";
 
 export default function ImportPage() {
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
@@ -21,7 +22,7 @@ export default function ImportPage() {
   const [activeTab, setActiveTab] = useState<"candidates" | "jobs">("candidates");
   
   // Candidates state
-  const [candidatesData, setCandidatesData] = useState<any[]>([]);
+  const [candidatesData, setCandidatesData] = useState<unknown[]>([]);
   const [candidatesPagination, setCandidatesPagination] = useState({
     currentPage: 1,
     perPage: 25,
@@ -33,7 +34,7 @@ export default function ImportPage() {
   const [candidatesLoading, setCandidatesLoading] = useState(false);
 
   // Jobs state
-  const [jobsData, setJobsData] = useState<any[]>([]);
+  const [jobsData, setJobsData] = useState<unknown[]>([]);
   const [jobsPagination, setJobsPagination] = useState({
     currentPage: 1,
     perPage: 25,
@@ -49,37 +50,37 @@ export default function ImportPage() {
 
   const totalSelected = selectedCandidateIds.length + selectedJobIds.length;
 
-  const loadCandidates = async (page: number = 1, perPage: number = 25, sort?: string) => {
+  const loadCandidates = useCallback(async (page: number = 1, perPage: number = 25, sort?: string) => {
     setCandidatesLoading(true);
     try {
       const result = await listCandidates({ page, perPage, sort: sort || `-${sortMode}` });
       setCandidatesData(result.candidates || []);
       setCandidatesPagination(result.pagination);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load candidates from TeamTailor");
     } finally {
       setCandidatesLoading(false);
     }
-  };
+  }, [listCandidates, sortMode]);
 
-  const loadJobs = async (page: number = 1, perPage: number = 25, sort?: string) => {
+  const loadJobs = useCallback(async (page: number = 1, perPage: number = 25, sort?: string) => {
     setJobsLoading(true);
     try {
       const result = await listJobs({ page, perPage, sort: sort || `-${sortMode}` });
       setJobsData(result.jobs || []);
       setJobsPagination(result.pagination);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load jobs from TeamTailor");
     } finally {
       setJobsLoading(false);
     }
-  };
+  }, [listJobs, sortMode]);
 
   // Load data on component mount and when sort mode changes
   useEffect(() => {
     loadCandidates();
     loadJobs();
-  }, [sortMode]);
+  }, [sortMode, loadCandidates, loadJobs]);
 
   const handleImport = () => {
     if (totalSelected === 0) {
@@ -175,7 +176,7 @@ export default function ImportPage() {
 
           <TabsContent value="candidates" className="m-0">
             <CandidatesTable
-              data={candidatesData}
+              data={candidatesData as unknown as TeamTailorCandidate[]}
               isLoading={candidatesLoading}
               pagination={candidatesPagination}
               selectedIds={selectedCandidateIds}
@@ -186,7 +187,7 @@ export default function ImportPage() {
 
           <TabsContent value="jobs" className="m-0">
             <JobsTable
-              data={jobsData}
+              data={jobsData as unknown as TeamTailorJob[]}
               isLoading={jobsLoading}
               pagination={jobsPagination}
               selectedIds={selectedJobIds}

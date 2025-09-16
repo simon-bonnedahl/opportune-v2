@@ -2,8 +2,8 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, ExternalLink } from "lucide-react";
-import { formatShortDate, formatDuration, timeAgo } from "@/lib/format";
-import { Doc, Id } from "@/types";
+import { formatDuration, timeAgo } from "@/lib/format";
+import { Doc, Id } from "@/lib/convex";
 import { Context, ContextContentFooter, ContextCacheUsage, ContextInputUsage, ContextContent, ContextContentBody, ContextContentHeader, ContextTrigger, ContextOutputUsage, ContextReasoningUsage } from "@/components/ai-elements/context";
 import { TriggeredByDisplay } from "./triggered-by-display";
 import Image from "next/image";
@@ -14,11 +14,8 @@ interface TaskTableRowProps {
   openTaskDialog: (taskId: Id<"tasks">) => void;
 }
 
-// Display statuses (align with Vercel-style wording)
-const FILTER_STATUSES = ["queued", "running", "succeeded", "failed", "canceled"] as const;
-
 // Map task.status -> display status
-const TASK_TO_DISPLAY: Record<string, (typeof FILTER_STATUSES)[number]> = {
+const TASK_TO_DISPLAY: Record<string, "queued" | "running" | "succeeded" | "failed" | "canceled"> = {
   queued: "queued",
   running: "running",
   succeeded: "succeeded",
@@ -30,7 +27,7 @@ export function TaskTableRow({ task, onTaskClick, openTaskDialog }: TaskTableRow
 
   function renderStatusCell(task: Doc<"tasks">) {
     const disp = TASK_TO_DISPLAY[String(task.status)] ?? "";
-    const color = disp === "succeeded" ? "bg-emerald-400" : disp === "failed" ? "bg-red-500" : disp === "running" ? "bg-blue-500" : disp === "queued" ? "bg-yellow-500" : "bg-neutral-400";
+    const color = disp === "succeeded" ? "bg-emerald-400" : disp === "failed" ? "bg-red-500" : disp === "running" ? "bg-blue-500 animate-pulse" : disp === "queued" ? "bg-yellow-500" : "bg-neutral-400";
     const label = disp === "queued" ? "Queued" : disp === "running" ? "Running" : disp === "succeeded" ? "Succeeded" : disp === "failed" ? "Failed" : "Canceled";
     const isCompleted = disp === "succeeded" || disp === "failed" || disp === "canceled";
     const primaryEnd = isCompleted ? task.stoppedAt : task.runAt;

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { useQuery, useAction } from "convex/react";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useAction, usePaginatedQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,76 +11,31 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { formatDate } from "@/lib/format";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { CandidateDoc, Id, JobDoc, JobProcessingStatus, JobProfileDoc } from "@/types";
 import { JobsTable } from "@/components/jobs/jobs-table";
+import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
 import { useDebounce } from "@/hooks/use-debounce";
 import { toast } from "sonner";
+import { Plus, Info } from "lucide-react";
+import { Doc, Id } from "../../../../convex/_generated/dataModel";
 
 export default function JobsPage() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<Id<"jobs"> | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const debouncedSearchText = useDebounce(searchText, 500);
-  const [sortMode, setSortMode] = useState<"updated-at" | "created-at">("updated-at");
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    perPage: 25,
-    totalPages: 1,
-    totalCount: 0,
-    hasNext: false,
-    hasPrev: false,
-  });
-  const [jobsData, setJobsData] = useState<JobDoc[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
 
   const addJob = useAction(api.jobs.add);
 
   const totalCount = useQuery(api.jobs.getJobsCount, { search: debouncedSearchText }) as number | undefined;
-  const jobsQuery = useQuery(api.jobs.listJobsPaginated, {
-    search: debouncedSearchText,
-    page: pagination.currentPage,
-    perPage: pagination.perPage,
-    sortBy: `-${sortMode}`,
-  });
-
-  // Get processing statuses for the current page of jobs
-  const jobIds = jobsData.map(j => j._id);
-  const processingStatuses = useQuery(api.jobs.getProcessingStatusByJobIds, { 
-    jobIds: jobIds as Id<"jobs">[] 
-  }) as Array<{
-    jobId: string;
-    status: "queued" | "running" | "succeeded" | "failed" | "canceled" | "none" | "unknown";
-    progress: number;
-    progressMessage: string;
-    errorMessage: string;
-  }> | undefined;
-
-  // Update jobs data when query results change
-  useEffect(() => {
-    if (jobsQuery) {
-      setJobsData(jobsQuery.jobs);
-      setPagination(jobsQuery.pagination);
-    }
-  }, [jobsQuery]);
-
-  // Reset pagination when search text changes (debounced)
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, currentPage: 1 }));
-  }, [debouncedSearchText]);
+  const { results, status } = usePaginatedQuery(
+    api.jobs.listPaginated,
+    { search: debouncedSearchText },
+    { initialNumItems: 50 }
+  );
 
   const handleSearch = (value: string) => {
     setSearchText(value);
-  };
-
-  const handlePageChange = (page: number, perPage: number, sort?: string) => {
-    setPagination(prev => ({ ...prev, currentPage: page, perPage }));
-  };
-
-  const handleSortModeChange = (newSortMode: "updated-at" | "created-at") => {
-    setSortMode(newSortMode);
-    setPagination(prev => ({ ...prev, currentPage: 1 })); // Reset to page 1 when changing sort
   };
 
   const handleAddJob = async () => {
@@ -104,7 +59,7 @@ export default function JobsPage() {
             <h1 className="text-lg font-semibold">Jobs</h1>
             <div className="text-md text-muted-foreground">
               {typeof totalCount === "number" ? (
-                <span>Showing {jobsData.length} of {totalCount} jobs</span>
+                <span>Showing {results.length} of {totalCount} jobs</span>
               ) : (
                 <Skeleton className="h-4 w-32" />
               )}
@@ -119,29 +74,17 @@ export default function JobsPage() {
               className="w-64"
             />
             
-            <Select value={sortMode} onValueChange={handleSortModeChange}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="updated-at">Last Updated</SelectItem>
-                <SelectItem value="created-at">Date Created</SelectItem>
-              </SelectContent>
-            </Select>
-            
             <Button onClick={handleAddJob} size="sm">
-              + Add Job
+              <Plus className="h-4 w-4" />
+              Add Job
             </Button>
           </div>
         </div>
 
         <JobsTable
-          data={jobsData}
-          isLoading={isLoading}
-          pagination={pagination}
-          onPageChange={handlePageChange}
+          data={results}
+          isLoading={status === "LoadingFirstPage"}
           onRowClick={setSelectedId}
-          processingStatuses={processingStatuses || []}
         />
       </Card>
 
@@ -158,72 +101,48 @@ function getInitials(text?: string) {
   return (first + last).toUpperCase();
 }
 
-function JobDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const [job] = (useQuery(api.jobs.getJobProfilesByJobIds, { jobIds: [id as unknown as Id<"jobs">] }) as JobProfileDoc[] | undefined) ?? [];
-  type JobSourceData = {
-    jobId: Id<"jobs">;
-    body?: string;
-    links?: Record<string, string>;
-    tags?: string[];
-    recruiterEmail?: string;
-    remoteStatus?: string;
-    languageCode?: string;
-    mailbox?: string;
-    humanStatus?: string;
-    internal?: boolean;
-    createdAt?: number;
-    startDate?: number;
-    endDate?: number;
-    updatedAt: number;
-  };
-  // Note: Job source data query not available in new API yet
-  const source = null;
-  const core = useQuery(api.jobs.getJobById, { jobId: id as unknown as Id<"jobs"> }) as JobDoc | undefined;
-  const matches = useQuery(api.matches.listMatchesForJob, { jobId: id as unknown as Id<"jobs">, limit: 100 }) as import("@/types").MatchDoc[] | undefined;
-  const candidates = useQuery(api.candidates.list) as CandidateDoc[] | undefined;
+function JobDialog({ id, onClose }: { id: Id<"jobs">; onClose: () => void }) {
+  const job = useQuery(api.jobs.get, { jobId: id  }) 
+
+  const profile = useQuery(api.jobs.getProfile, { jobId: id })
+  const sourceData = useQuery(api.jobs.getSourceData, { jobId: id  });
   const [open, setOpen] = useState(true);
-  const close = () => { setOpen(false); onClose(); };
-  const title = core?.rawData?.attributes?.title ?? core?.title ?? "Job";
-  const matchRows = (matches ?? []).map((m) => {
-    const cand = (candidates ?? []).find((c) => String(c._id) === String(m.candidateId));
-    const name = cand?.name ?? String(m.candidateId);
-    const matchedAt = new Date(m.updatedAt ?? m._creationTime).toLocaleString();
-    const importedAt = cand ? new Date((cand as CandidateDoc).updatedAt ?? (cand as CandidateDoc)._creationTime).toLocaleDateString() : "";
-    return {
-      id: String(m._id),
-      name,
-      scorePct: Math.round((Number(m.score) || 0) * 100),
-      matchedAt,
-      importedAt,
-    };
-  });
+  
+  const close = () => { 
+    setOpen(false); 
+    onClose(); 
+  };
+  
+  const initials = getInitials(job?.title);
+
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) close(); }}>
       <DialogContent className="h-[85vh] overflow-hidden flex flex-col w-full max-w-[calc(100%-2rem)] sm:!max-w-[95vw] xl:!max-w-[1200px]">
         <DialogHeader className="border-b">
-          <div className="flex items-center justify-between text-xs">
-            <div />
-            <DialogTitle className="text-xs font-mono">{String(id)}</DialogTitle>
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between p-2">
+            <div className="flex items-center gap-3">
+              <Avatar className="size-10">
+                <AvatarFallback className="text-[11px]">{initials || "?"}</AvatarFallback>
+              </Avatar>
+              <DialogTitle className="text-base font-semibold leading-none">{job?.title}</DialogTitle>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              {job?._creationTime && <div>{new Date(job._creationTime).toLocaleDateString()}</div>}
               <div className="flex items-center gap-2"><span className="inline-block size-2 rounded-full bg-emerald-500" />Processed</div>
             </div>
           </div>
         </DialogHeader>
-        <div className="shrink-0 flex items-center gap-4 p-4 pb-2">
-          <Avatar className="size-10">
-            <AvatarFallback className="text-[11px]">{getInitials(title)}</AvatarFallback>
-          </Avatar>
-          <div className="text-base font-semibold">{title}</div>
-        </div>
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <Tabs defaultValue="matches" className="flex-1 flex flex-col min-h-0">
-            <TabsList className="bg-transparent h-12 p-0 border-b w-full justify-start rounded-none">
-              <TabsTrigger value="matches" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-12 px-6">Matches</TabsTrigger>
-              <TabsTrigger value="profile" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-12 px-6">Job Profile</TabsTrigger>
-              <TabsTrigger value="raw" className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none h-12 px-6">Raw Data</TabsTrigger>
-            </TabsList>
-            <TabsContent value="matches" className="flex-1 min-h-0 overflow-y-auto p-3">
-              <div className="rounded border bg-background">
+            <AnimatedTabList profile={profile} />
+            <TabsContent value="matches" className="flex-1 flex flex-col min-h-0 p-2">
+              <div className="px-2 pb-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input placeholder="Search..." className="h-8 w-60" />
+                </div>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto rounded border bg-background">
                 <table className="w-full text-sm">
                   <thead className="bg-background">
                     <tr>
@@ -232,71 +151,108 @@ function JobDialog({ id, onClose }: { id: string; onClose: () => void }) {
                       <th className="text-left p-2">% Score</th>
                       <th className="text-left p-2">Matched</th>
                       <th className="text-left p-2">Imported</th>
+                      <th className="text-left p-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(matchRows ?? []).map((row, idx) => (
-                      <tr key={row.id} className="border-t border-[var(--border)]">
-                        <td className="p-2 text-center text-neutral-400">{idx + 1}</td>
-                        <td className="p-2">
-                          <div className="font-medium truncate">{row.name}</div>
-                        </td>
-                        <td className="p-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-28">
-                              <Progress value={row.scorePct} className="h-2" />
-                            </div>
-                            <span className="tabular-nums text-xs text-neutral-300">{row.scorePct}%</span>
-                          </div>
-                        </td>
-                        <td className="p-2 text-xs text-neutral-300">{row.matchedAt}</td>
-                        <td className="p-2 text-xs text-neutral-300">{row.importedAt}</td>
-                      </tr>
-                    ))}
+                 
                   </tbody>
                 </table>
               </div>
+              <div className="shrink-0 flex items-center justify-center gap-2 py-3 border-t mt-2">
+                <Button variant="outline" size="icon">«</Button>
+                <Button variant="outline" size="sm">-5</Button>
+                <Button variant="outline" size="icon">‹</Button>
+                <span className="text-sm px-2">1 / 1</span>
+                <Button variant="outline" size="icon">›</Button>
+                <Button variant="outline" size="sm">+5</Button>
+                <Button variant="outline" size="icon">»</Button>
+              </div>
             </TabsContent>
-            <TabsContent value="profile" className="overflow-y-auto p-3">
-              {job ? (
+            <TabsContent value="profile" className="overflow-y-auto p-3 relative">
+              {profile ? (
                 <div className="space-y-6 text-sm">
-                  {job?.summary && (
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Profile</h3>
+                    <ProfileInfoTooltip 
+                      modelId={profile?.metadata?.modelId} 
+                      confidence={profile?.metadata?.confidence}
+                    >
+                      <div>
+                        <Info className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+                      </div>
+                    </ProfileInfoTooltip>
+                  </div>
+                  {profile?.summary && (
                     <div className="space-y-2">
                       <div className="font-medium">Summary</div>
-                      <p className="whitespace-pre-wrap">{job.summary}</p>
+                      <p className="whitespace-pre-wrap">{profile.summary}</p>
                     </div>
                   )}
-                  {Array.isArray(job?.responsibilities) && job.responsibilities.length > 0 && (
+                  {Array.isArray(profile?.workTasks) && profile.workTasks.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Responsibilities</div>
                       <ul className="list-disc pl-5 space-y-1">
-                        {job.responsibilities.map((r: string, i: number) => (
+                        {profile.workTasks.map((r: string, i: number) => (
                           <li key={i} className="whitespace-pre-wrap">{r}</li>
                         ))}
                       </ul>
                     </div>
                   )}
-                  {Array.isArray(job?.requirements) && job.requirements.length > 0 && (
+                  {Array.isArray(profile?.technicalSkills) && profile.technicalSkills.length > 0 && (
                     <div className="space-y-2">
-                      <div className="font-medium">Requirements</div>
+                      <div className="font-medium">Technical Skills</div>
                       <ul className="list-disc pl-5 space-y-1">
-                        {job.requirements.map((r: string, i: number) => (
-                          <li key={i} className="whitespace-pre-wrap">{r}</li>
+                        {profile.technicalSkills.map((skill: { name: string; score: number }, i: number) => (
+                           <Badge key={i} variant="outline" className="px-2 py-1">{skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}</Badge>  
                         ))}
                       </ul>
                     </div>
                   )}
-                  {Array.isArray(job?.skills) && job.skills.length > 0 && (
+                  {Array.isArray(profile?.softSkills) && profile.softSkills.length > 0 && (
                     <div className="space-y-2">
-                      <div className="font-medium">Skills</div>
+                      <div className="font-medium">Soft Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {job.skills.map((s, i: number) => (
-                          <Badge key={i} variant="outline" className="px-2 py-1">{s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}</Badge>
+                        {profile.softSkills.map((skill: { name: string; score: number }, i: number) => (
+                          <Badge key={i} variant="outline" className="px-2 py-1">{skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}</Badge>
                         ))}
                       </div>
                     </div>
                   )}
-                  {!job?.summary && (!job?.skills || job.skills.length === 0) && (
+                  {Array.isArray(profile?.education) && profile.education.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Education</div>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {profile.education.map((education: string, i: number) => (
+                          <li key={i} className="whitespace-pre-wrap">{education}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                     {Array.isArray(profile?.aspirations) && profile.aspirations.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Aspirations</div>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {profile.aspirations.map((aspiration: string, i: number) => (
+                          <li key={i} className="whitespace-pre-wrap">{aspiration}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {Array.isArray(profile?.preferences) && profile.preferences.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Preferences</div>
+                      <ul className="list-disc pl-5 space-y-1">
+                        {profile.preferences.map((preference: string, i: number) => (
+                          <li key={i} className="whitespace-pre-wrap">{preference}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+               
+                  {!profile?.summary && (!profile?.technicalSkills || profile.technicalSkills.length === 0) && (!profile?.softSkills || profile.softSkills.length === 0) && (
                     <div className="text-sm text-neutral-400">No profile yet</div>
                   )}
                 </div>
@@ -305,10 +261,13 @@ function JobDialog({ id, onClose }: { id: string; onClose: () => void }) {
               )}
             </TabsContent>
             <TabsContent value="raw" className="overflow-y-auto p-3">
-              {source ? (
-                <pre className="bg-neutral-900/60 rounded p-3 overflow-x-auto text-xs">
-{JSON.stringify(source, null, 2)}
-                </pre>
+              {sourceData ? (
+                <div className="space-y-2 text-sm">
+                  <div className="font-medium">Raw Data</div>
+                  <pre className=" rounded p-3 overflow-x-auto text-xs">
+                    {JSON.stringify(sourceData, null, 2)}
+                  </pre>
+                </div>
               ) : (
                 <div className="text-sm text-neutral-400">No raw data</div>
               )}
@@ -320,3 +279,52 @@ function JobDialog({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
+function AnimatedTabList({ profile }: { profile?: any }) {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const updateIndicator = () => {
+    const el = listRef.current;
+    if (!el) return;
+    const active = el.querySelector('[data-state="active"]') as HTMLElement | null;
+    if (!active) return;
+    const containerRect = el.getBoundingClientRect();
+    const targetRect = active.getBoundingClientRect();
+    const left = targetRect.left - containerRect.left;
+    const width = targetRect.width;
+    const indicator = el.querySelector('[data-indicator]') as HTMLDivElement | null;
+    if (indicator) {
+      indicator.style.transform = `translateX(${left}px)`;
+      indicator.style.width = `${width}px`;
+    }
+  };
+  useEffect(() => {
+    updateIndicator();
+    const ro = new ResizeObserver(() => updateIndicator());
+    if (listRef.current) ro.observe(listRef.current);
+    window.addEventListener('resize', updateIndicator);
+    return () => {
+      window.removeEventListener('resize', updateIndicator);
+      ro.disconnect();
+    };
+  }, []);
+  const onValueChange = () => {
+    // schedule after DOM state updates
+    requestAnimationFrame(updateIndicator);
+  };
+  return (
+    <TabsList
+      ref={listRef as React.RefObject<HTMLDivElement>}
+      className="relative h-11 p-0 border-b w-full justify-start rounded-none bg-transparent"
+      onClick={onValueChange as React.MouseEventHandler<HTMLDivElement>}
+    >
+      <div
+        data-indicator
+        aria-hidden
+        className="absolute bottom-0 left-0 h-[2px] bg-primary transition-[transform,width] duration-300 ease-out"
+        style={{ width: 0, transform: 'translateX(0)' }}
+      />
+      <TabsTrigger value="matches" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Matches</TabsTrigger>
+      <TabsTrigger value="profile" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Profile</TabsTrigger>
+      <TabsTrigger value="raw" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Raw Data</TabsTrigger>
+    </TabsList>
+  );
+}

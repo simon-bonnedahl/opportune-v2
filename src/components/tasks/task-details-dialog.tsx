@@ -3,21 +3,17 @@
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { RadialProgress } from "@/components/ui/radial-progress";
 import { 
 	Clock, 
-	User, 
 	Activity, 
 	AlertCircle, 
 	Copy, 
-	Play, 
 	Square, 
 	RefreshCcw,
 	Calendar
 } from "lucide-react";
-import { formatDate, formatDuration, formatShortDate } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
 import { Doc } from "@/types";
 import { useAction } from "convex/react";
 import { api } from "@/lib/convex";
@@ -36,13 +32,6 @@ import {
 import { TriggeredByDisplay } from "@/components/tasks/triggered-by-display";
 import Image from "next/image";
 
-const STATUS_LABELS = {
-	queued: "Queued",
-	running: "Running", 
-	succeeded: "Succeeded",
-	failed: "Failed",
-	canceled: "Canceled"
-} as const;
 
 const STATUS_COLORS = {
 	queued: "bg-yellow-500",
@@ -59,20 +48,12 @@ interface TaskDetailsDialogProps {
 }
 
 export function TaskDetailsDialog({ task, onClose, onTaskClick }: TaskDetailsDialogProps) {
-	if (!task) return null;
-
 	const [currentTime, setCurrentTime] = useState(Date.now());
-
-	const disp = task.status === "succeeded" ? "succeeded" : 
-		task.status === "failed" ? "failed" : 
-		task.status === "running" ? "running" : 
-		task.status === "canceled" ? "canceled" : "queued";
-
-	const statusColor = STATUS_COLORS[disp];
+	const rerunTask = useAction(api.tasks.rerunTask);
 
 	// Update time every second for running tasks to show live duration
 	useEffect(() => {
-		if (task.status === "running") {
+		if (task?.status === "running") {
 			// Update immediately when task becomes running
 			setCurrentTime(Date.now());
 			
@@ -82,13 +63,16 @@ export function TaskDetailsDialog({ task, onClose, onTaskClick }: TaskDetailsDia
 
 			return () => clearInterval(interval);
 		}
-	}, [task.status, task._id]);
+	}, [task?.status, task?._id]);
 
-	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
-	};
+	if (!task) return null;
 
-	const rerunTask = useAction(api.tasks.rerunTask);
+	const disp = task.status === "succeeded" ? "succeeded" : 
+		task.status === "failed" ? "failed" : 
+		task.status === "running" ? "running" : 
+		task.status === "canceled" ? "canceled" : "queued";
+
+	const statusColor = STATUS_COLORS[disp];
 
 	return (
 		<Dialog open={!!task} onOpenChange={() => onClose()}>

@@ -1,30 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { CandidateDoc, Id } from "@/types";
+import type { Doc, Id } from "@/lib/convex";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { api } from "@/lib/convex";
 import { useQuery } from "convex/react";
-
-interface ProcessingStatus {
-  candidateId: string;
-  status: "queued" | "running" | "succeeded" | "failed" | "canceled" | "none" | "unknown";
-  progress: number;
-  progressMessage: string;
-  errorMessage: string;
-}
+import Image from "next/image";
 
 interface CandidatesTableProps {
-  data: CandidateDoc[];
+  data: Doc<"candidates">[];
   isLoading?: boolean;
-  onRowClick?: (candidateId: string) => void;
+  onRowClick?: (candidateId: Id<"candidates">) => void;
 }
 
 export function CandidatesTable({ 
@@ -41,7 +31,7 @@ export function CandidatesTable({
     return (first + last).toUpperCase();
   }
 
-  function getCandidateTags(row: CandidateDoc): string[] {
+  function getCandidateTags(row: Doc<"candidates">): string[] {
     const tags: string[] = [];
     const attrs = row?.rawData?.attributes ?? {};
     if (Array.isArray(attrs?.tags)) {
@@ -157,7 +147,7 @@ export function CandidatesTable({
                     <div className="flex items-center gap-3">
                       <Avatar className="size-10">
                         {candidate?.imageUrl ? (
-                          <img src={candidate.imageUrl} alt={candidate.name} className="h-full w-full object-cover rounded-full" />
+                          <Image src={candidate.imageUrl} alt={candidate.name} width={40} height={40} className="h-full w-full object-cover rounded-full" />
                         ) : (
                           <AvatarFallback className="text-sm font-medium">
                             {getInitials(candidate.name)}

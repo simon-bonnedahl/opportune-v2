@@ -1,9 +1,8 @@
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { Clock, User, AlertCircle, Link } from "lucide-react";
-import { Doc, Id } from "@/types";
 import { formatShortDate } from "@/lib/format";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { Doc, Id } from "@/lib/convex";
 
 interface TriggeredByDisplayProps {
   task: Doc<"tasks">;

@@ -3,7 +3,6 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { dark } from '@clerk/themes';
 import { useTheme } from 'next-themes';
 import React from 'react';
-import { ConvexProvider, ConvexReactClient } from 'convex/react';
 
 
 
@@ -11,6 +10,7 @@ import { ReactNode } from 'react'
 import { ConvexProviderWithClerk } from 'convex/react-clerk'
 import { useAuth } from '@clerk/nextjs'
 import { PostHogProvider } from './posthog-provider'
+import { ConvexReactClient } from 'convex/react';
 
 if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
   throw new Error('Missing NEXT_PUBLIC_CONVEX_URL in your .env file')

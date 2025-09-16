@@ -1,14 +1,14 @@
 "use client";
 
 import { format } from "date-fns";
-import { ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { TeamTailorJob } from "@/types/teamtailor";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import Image from "next/image";
 
 
 interface JobsTableProps {
@@ -90,7 +90,8 @@ export function JobsTable({
                   aria-label="Select all jobs"
                 />
               </TableHead>
-              <TableHead className="w-80">Title</TableHead>
+              <TableHead className="w-72">Title</TableHead>
+              <TableHead className="w-20">Body Length</TableHead>
               <TableHead className="w-20">Last Updated</TableHead>
               <TableHead className="w-20">Created</TableHead>
               <TableHead className="w-16"></TableHead>
@@ -126,12 +127,16 @@ export function JobsTable({
                   />
                 </TableCell>
                 <TableCell className="w-80 font-medium truncate max-w-80">{job.title}</TableCell>
-                <TableCell className="w-20 text-sm">
+                <TableCell className="w-20 text-sm font-medium">
+                  {job.bodyLength}
+                </TableCell>
+                <TableCell className="w-20 text-sm text-muted-foreground">
                   {format(new Date(job.updatedAtTT), "MMM dd, yyyy")}
                 </TableCell>
                 <TableCell className="w-20 text-sm text-muted-foreground">
                   {format(new Date(job.createdAtTT), "MMM dd, yyyy")}
                 </TableCell>
+           
                 <TableCell className="w-16 text-right">
                   <Button
                     className="hover:cursor-pointer hover:scale-105 transition-all duration-300"
@@ -139,11 +144,12 @@ export function JobsTable({
                     size="icon"
                     onClick={() => window.open(job.link, "_blank")}
                   >
-                    <img
+                    <Image
                       src="/images/teamtailor_logo.png"
                       alt="Teamtailor"
+                      width={20}
+                      height={20}
                       className="h-5 w-5 rounded-full"
-                      style={{ display: "inline-block" }}
                     />
                   </Button>
                 </TableCell>

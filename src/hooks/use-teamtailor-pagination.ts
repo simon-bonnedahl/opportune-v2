@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAction } from "convex/react";
-import { api } from "../../../convex/_generated/api";
 
 interface PaginationState {
   currentPage: number;
@@ -11,11 +10,6 @@ interface PaginationState {
   totalCount: number;
   hasNext: boolean;
   hasPrev: boolean;
-}
-
-interface TeamTailorResponse<T> {
-  data: T[];
-  pagination: PaginationState;
 }
 
 export function useTeamTailorPagination<T>(

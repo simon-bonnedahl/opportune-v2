@@ -2,6 +2,7 @@ import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SignUp as ClerkSignUpForm } from '@clerk/nextjs';
 import { Metadata } from 'next';
+import Image from 'next/image';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
@@ -36,7 +37,7 @@ export default function SignUpViewPage() {
         />
         <div className='absolute inset-0 bg-black/20' />
         <div className='relative z-20 flex items-center text-lg font-medium'>
-          <img src='/images/opportune-logo.svg' alt='Opportune Logo' className='size-40 filter invert'/>
+          <Image src='/images/opportune-logo.svg' alt='Opportune Logo' width={160} height={160} className='size-40 filter invert'/>
           
         </div>
       

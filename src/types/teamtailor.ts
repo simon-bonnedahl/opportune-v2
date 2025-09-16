@@ -14,6 +14,7 @@ export interface TeamTailorJob {
   status: string;
   department: string;
   location: string;
+  bodyLength: number;
   updatedAtTT: number;
   createdAtTT: number;
   link: string;

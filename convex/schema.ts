@@ -22,21 +22,36 @@ export default defineSchema({
   jobProfiles: jobProfiles,
   jobEmbeddings: jobEmbeddings,
 
-  // Candidate ↔ Job match results
+  companies: defineTable({
+    name: v.string(),
+    imageUrl: v.optional(v.string()),
+    locations: v.array(v.string()),
+    updatedAt: v.number(),
+  }).searchIndex("by_name", { searchField: "name" }),
+
   matches: defineTable({
     candidateId: v.id("candidates"),
+    scoringGuidelineId: v.id("scoringGuidelines"),
     jobId: v.id("jobs"),
-    model: v.optional(v.string()), // temporarily optional for backfill
-    score: v.number(),
+    model: v.string(),
+    score: v.float64(),
     explanation: v.optional(v.string()),
-    metadata: v.optional(v.any()),
+    metadata: v.any(),
     updatedAt: v.number(),
   })
     .index("by_candidate", ["candidateId"])
     .index("by_job", ["jobId"])
-    .index("by_candidate_and_job", ["candidateId", "jobId"]) // legacy index kept for compatibility
+    .index("by_model", ["model"])
+    .index("by_score", ["score"])
+    .index("by_candidate_and_job", ["candidateId", "jobId"]) 
     .index("by_candidate_job_model", ["candidateId", "jobId", "model"]),
-  // Tasks tracking for fine-grained monitoring and queue control
+
+  scoringGuidelines: defineTable({
+    name: v.string(),
+    text: v.string(),
+    createdBy: v.id("users"),
+  }).index("by_created_by", ["createdBy"]),
+
   tasks: defineTable({
     workpool: v.string(),
     type: v.string(),
@@ -59,4 +74,5 @@ export default defineSchema({
     .index("by_runAt", ["runAt"])
     .index("by_workpool_status_queuedAt", ["workpool", "status", "queuedAt"]) 
     .index("by_workpool_status_stoppedAt", ["workpool", "status", "stoppedAt"]),
+
 });

@@ -4,7 +4,6 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ModeToggle } from './ThemeToggle/theme-toggle';
-import { UserAvatarProfile } from '../user-avatar-profile';
 import { useUser } from '@clerk/nextjs';
 import SearchInput from '../search-input';
 import { navItems } from '@/constants/data';

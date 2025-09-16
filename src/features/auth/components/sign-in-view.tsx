@@ -1,7 +1,6 @@
-import { cn } from '@/lib/utils';
 import { SignIn as ClerkSignInForm } from '@clerk/nextjs';
 import { Metadata } from 'next';
-import Link from 'next/link';
+import Image from 'next/image';
 
 export const metadata: Metadata = {
   title: 'Authentication',
@@ -27,7 +26,7 @@ export default function SignInViewPage() {
         />
         <div className='absolute inset-0 bg-black/20' />
         <div className='relative z-20 flex items-center text-lg font-medium'>
-          <img src='/images/opportune-logo.svg' alt='Opportune Logo' className='size-40 filter invert' />
+          <Image src='/images/opportune-logo.svg' alt='Opportune Logo' width={160} height={160} className='size-40 filter invert' />
           
         </div>
       

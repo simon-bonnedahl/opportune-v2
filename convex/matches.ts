@@ -1,160 +1,203 @@
-import { internalMutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { cosineSimilarity, embedMany } from 'ai';
+import { query, mutation, internalMutation, action } from './_generated/server';
+import { v } from 'convex/values';
+import { enqueueTask } from './tasks';
 
-export const saveMatch = internalMutation({
+const models = {
+  openai: {
+    gpt5: {
+      modelId: "gpt-5",
+      config: {
+        temperature: 0.0,
+        maxTokens: 1000,
+      },
+    },
+    gpt4o: {
+      modelId: "gpt-4o",
+      config: {
+        temperature: 0.0,
+        maxTokens: 1000,
+      },
+    }
+  },
+  google: {
+    gemini: {
+      modelId: "gemini-2.0-flash",
+      config: {
+        temperature: 0.0,
+        maxTokens: 1000,
+      },
+    }
+  },
+  anthropic: {
+    claude4sonnet: {
+      modelId: "claude-4-sonnet-20240229",
+      config: {
+        temperature: 0.0,
+        maxTokens: 1000,
+      },
+    }
+  }
+}
+//Helpers
+const getEmbeddingSection = (embeddings: any[], section: string) => {
+    return embeddings.find((e) => e.section === section);
+}
+
+
+//Internals
+export const create = internalMutation({
   args: {
-    candidateId: v.id("candidates"),
+      jobId: v.id("jobs"),
+      candidateId: v.id("candidates"),
+      scoringGuidelineId: v.id("scoringGuidelines"),
+      model: v.string(),
+      score: v.float64(),
+      explanation: v.optional(v.string()),
+      metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+      const matchId = await ctx.db.insert("matches", {
+          candidateId: args.candidateId,
+          scoringGuidelineId: args.scoringGuidelineId,
+          jobId: args.jobId,
+          model: args.model,
+          score: args.score,
+          explanation: args.explanation,
+          metadata: args.metadata,
+          updatedAt: Date.now(),
+      });
+
+      return matchId;
+  }
+});
+
+export const enqueueMatch = action({
+  args: {
     jobId: v.id("jobs"),
-    model: v.optional(v.string()),
-    score: v.number(),
-    explanation: v.optional(v.string()),
-    metadata: v.optional(v.any()),
-    updatedAt: v.number(),
+    candidateId: v.id("candidates"),
+    scoringGuidelineId: v.id("scoringGuidelines"),
+    model: v.string(),
   },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const normalizedModel: string = String(
-      args.model ?? (args.metadata as any)?.model ?? "unknown"
-    );
-    const existing = await ctx.db
-      .query("matches")
-      .withIndex("by_candidate_job_model", (q) => q.eq("candidateId", args.candidateId).eq("jobId", args.jobId).eq("model", normalizedModel))
-      .unique();
-    const payload = {
-      model: normalizedModel,
-      score: Math.max(0, Math.min(1, args.score)),
-      explanation: args.explanation,
-      metadata: args.metadata,
-      updatedAt: args.updatedAt,
-    };
-    if (existing) {
-      await ctx.db.patch(existing._id, payload);
-    } else {
-      await ctx.db.insert("matches", { candidateId: args.candidateId, jobId: args.jobId, ...payload } as any);
-    }
-    return null;
-  },
+  handler: async (ctx, { jobId, candidateId, model, scoringGuidelineId }) => {
+     await enqueueTask(ctx, "match", "user", { jobId, candidateId, model, scoringGuidelineId });
+  }
 });
 
-export const listMatchesByCandidate = internalMutation({
-  args: { candidateId: v.id("candidates"), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 50;
-    const rows: any[] = [];
-    for await (const it of ctx.db
-      .query("matches")
-      .withIndex("by_candidate", (q) => q.eq("candidateId", args.candidateId))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+
+
+export const getMatchScores = query({
+    args: {
+        jobId: v.id("jobs"),
+        candidateId: v.id("candidates"),
+    },
+    handler: async (ctx, { jobId, candidateId }) => {
+        const jobEmbeddings = await ctx.db.query("jobEmbeddings").withIndex("by_job_id", (q) => q.eq("jobId", jobId)).collect();
+        const candidateEmbeddings = await ctx.db.query("candidateEmbeddings").withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId)).collect();
+        if (jobEmbeddings.length === 0 || candidateEmbeddings.length === 0) {
+            return { averageScore: 0, summaryScore: 0, technicalSkillsScore: 0, softSkillsScore: 0, educationScore: 0, workTasksScore: 0, preferencesScore: 0, aspirationsScore: 0 };
+        }
+        const summaryScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "summary").vector, getEmbeddingSection(candidateEmbeddings, "summary").vector);
+        const technicalSkillsScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "technical_skills").vector, getEmbeddingSection(candidateEmbeddings, "technical_skills").vector);
+        const softSkillsScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "soft_skills").vector, getEmbeddingSection(candidateEmbeddings, "soft_skills").vector);
+        const educationScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "education").vector, getEmbeddingSection(candidateEmbeddings, "education").vector);
+        const workTasksScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "work_tasks").vector, getEmbeddingSection(candidateEmbeddings, "work_experience").vector);
+        const preferencesScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "preferences").vector, getEmbeddingSection(candidateEmbeddings, "preferences").vector);
+        const aspirationsScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "aspirations").vector, getEmbeddingSection(candidateEmbeddings, "aspirations").vector);
+        const averageScore = (summaryScore + technicalSkillsScore + softSkillsScore + educationScore + workTasksScore + preferencesScore + aspirationsScore) / 7;
+        const scores = { averageScore, summaryScore, technicalSkillsScore, softSkillsScore, educationScore, workTasksScore, preferencesScore, aspirationsScore };
+        return scores;
     }
-    rows.sort((a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime));
-    return rows;
-  },
 });
 
-export const listMatchesByJob = internalMutation({
-  args: { jobId: v.id("jobs"), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 50;
-    const rows: any[] = [];
-    for await (const it of ctx.db
-      .query("matches")
-      .withIndex("by_job", (q) => q.eq("jobId", args.jobId))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+// Get section details for a specific score category
+export const getSectionDetails = query({
+    args: {
+        jobId: v.id("jobs"),
+        candidateId: v.id("candidates"),
+        section: v.union(
+            v.literal("summary"),
+            v.literal("technical_skills"),
+            v.literal("soft_skills"),
+            v.literal("education"),
+            v.literal("work_tasks"),
+            v.literal("work_experience"),
+            v.literal("preferences"),
+            v.literal("aspirations")
+        ),
+    },
+    handler: async (ctx, { jobId, candidateId, section }) => {
+        // Get job profile
+        const jobProfile = await ctx.db.query("jobProfiles").withIndex("by_job_id", (q) => q.eq("jobId", jobId)).first();
+        if (!jobProfile) return null;
+
+        // Get candidate profile
+        const candidateProfile = await ctx.db.query("candidateProfiles").withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId)).first();
+        if (!candidateProfile) return null;
+
+        // Map sections to their data
+        const sectionMapping = {
+            summary: {
+                job: jobProfile.summary,
+                candidate: candidateProfile.summary,
+                isArray: false,
+            },
+            technical_skills: {
+                job: jobProfile.technicalSkills.map(skill => skill.name),
+                candidate: candidateProfile.technicalSkills.map(skill => skill.name),
+                isArray: true,
+            },
+            soft_skills: {
+                job: jobProfile.softSkills.map(skill => skill.name),
+                candidate: candidateProfile.softSkills.map(skill => skill.name),
+                isArray: true,
+            },
+            education: {
+                job: jobProfile.education,
+                candidate: candidateProfile.education,
+                isArray: true,
+            },
+            work_tasks: {
+                job: jobProfile.workTasks,
+                candidate: candidateProfile.workExperience,
+                isArray: true,
+            },
+            work_experience: {
+                job: jobProfile.workTasks,
+                candidate: candidateProfile.workExperience,
+                isArray: true,
+            },
+            preferences: {
+                job: jobProfile.preferences,
+                candidate: candidateProfile.preferences,
+                isArray: true,
+            },
+            aspirations: {
+                job: jobProfile.aspirations,
+                candidate: candidateProfile.aspirations,
+                isArray: true,
+            },
+        };
+
+        return sectionMapping[section] || null;
     }
-    rows.sort((a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime));
-    return rows;
-  },
 });
 
-export const listMatchesForCandidate = query({
-  args: { candidateId: v.union(v.id("candidates"), v.string()), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 50;
-    const rows: any[] = [];
-    const cid = args.candidateId as any;
-    for await (const it of ctx.db
-      .query("matches")
-      .withIndex("by_candidate", (q) => q.eq("candidateId", cid))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
-    }
-    rows.sort((a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime));
-    return rows;
-  },
-});
+// Get previous matches for a candidate and job combination
+export const getPreviousMatches = query({
+    args: {
+        jobId: v.id("jobs"),
+        candidateId: v.id("candidates"),
+    },
+    handler: async (ctx, { jobId, candidateId }) => {
+        const matches = await ctx.db.query("matches")
+            .withIndex("by_candidate_job_model", (q) => 
+                q.eq("candidateId", candidateId).eq("jobId", jobId)
+            )
+            .order("desc")
+            .collect();
 
-export const listMatchesForJob = query({
-  args: { jobId: v.union(v.id("jobs"), v.string()), limit: v.optional(v.number()) },
-  returns: v.array(v.any()),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 50;
-    const rows: any[] = [];
-    const jid = args.jobId as any;
-    for await (const it of ctx.db
-      .query("matches")
-      .withIndex("by_job", (q) => q.eq("jobId", jid))) {
-      rows.push(it);
-      if (rows.length >= limit) break;
+        return matches;
     }
-    rows.sort((a, b) => (b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime));
-    return rows;
-  },
 });
-
-// Public query to fetch the single stored match for a candidate/job pair
-export const getMatchByCandidateAndJob = query({
-  args: {
-    candidateId: v.union(v.id("candidates"), v.string()),
-    jobId: v.union(v.id("jobs"), v.string()),
-    model: v.optional(v.string()),
-  },
-  returns: v.any(),
-  handler: async (ctx, args) => {
-    const candidateId = args.candidateId as any;
-    const jobId = args.jobId as any;
-    if (args.model) {
-      const exact = await ctx.db
-        .query("matches")
-        .withIndex("by_candidate_job_model", (q) => q.eq("candidateId", candidateId).eq("jobId", jobId).eq("model", args.model as string))
-        .unique();
-      return exact ?? null;
-    }
-    let latest: any | null = null;
-    for await (const it of ctx.db
-      .query("matches")
-      .withIndex("by_candidate", (q) => q.eq("candidateId", candidateId))) {
-      if (String(it.jobId) !== String(jobId)) continue;
-      if (!latest || (it.updatedAt ?? it._creationTime) > (latest.updatedAt ?? latest._creationTime)) latest = it;
-    }
-    return latest ?? null;
-  },
-});
-
-// One-off backfill to populate missing `model` from metadata
-export const backfillMissingModel = internalMutation({
-  args: { limit: v.optional(v.number()) },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 200;
-    let updated = 0;
-    for await (const it of ctx.db.query("matches")) {
-      if (updated >= limit) break;
-      const m: any = it as any;
-      if (!m.model) {
-        const inferred = (m?.metadata?.model && typeof m.metadata.model === "string") ? m.metadata.model : "unknown";
-        try {
-          await ctx.db.patch(m._id, { model: inferred } as any);
-          updated++;
-        } catch {}
-      }
-    }
-    return updated;
-  },
-});
-
 

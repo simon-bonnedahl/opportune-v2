@@ -216,6 +216,76 @@ export const setProcessingTask = internalMutation({
 
 
 //Api
+
+
+export const get = query({
+  args: { candidateId: v.id("candidates") },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.candidateId);
+  },
+});
+
+
+
+export const getSourceData = query({
+  args: { candidateId: v.id("candidates") },
+  handler: async (ctx, args) => {
+    return await ctx.db.query("candidateSourceData").withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId)).unique();
+  },
+});
+
+
+export const getProfile = query({
+  args: { candidateId: v.id("candidates") },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.db.query("candidateProfiles").withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId)).unique();
+  },
+});
+
+
+export const list = query({
+  args: {},
+  returns: v.array(v.any()),
+  handler: async (ctx) => {
+    return await ctx.db.query("candidates").order("desc").collect();
+  },
+});
+
+// New queries for candidates page with search and pagination
+export const listPaginated = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const search = args.search?.toLowerCase().trim();
+    if(!search) {
+      return await ctx.db.query("candidates").order("desc").paginate(args.paginationOpts);
+    }
+
+    return await ctx.db.query("candidates").withSearchIndex("by_name", (q) => q.search("name", search)).paginate(args.paginationOpts);
+
+    
+  },
+});
+
+
+export const search = query({
+  args: {
+    search: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if(args.search.length === 0) {
+      return await ctx.db.query("candidates").order("desc").take(10);
+    }
+    return await ctx.db.query("candidates").withSearchIndex("by_name", (q) => q.search("name", args.search)).take(10);
+  },
+});
+
+
+
 export const add = action({
   args: {
     teamtailorId: v.string(),
@@ -250,64 +320,7 @@ export const addByUpdatedTT = action({
   }
 });
 
-export const getSourceData = query({
-  args: { candidateId: v.id("candidates") },
-  handler: async (ctx, args) => {
-    return await ctx.db.query("candidateSourceData").withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId)).unique();
-  },
-});
 
-
-export const list = query({
-  args: {},
-  returns: v.array(v.any()),
-  handler: async (ctx) => {
-    return await ctx.db.query("candidates").order("desc").collect();
-  },
-});
-
-
-export const get = query({
-  args: { candidateId: v.id("candidates") },
-  returns: v.union(v.any(), v.null()),
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.candidateId);
-  },
-});
-
-
-
-
-
-
-export const getProfile = query({
-  args: { candidateId: v.id("candidates") },
-  returns: v.union(v.any(), v.null()),
-  handler: async (ctx, args) => {
-    return await ctx.db.query("candidateProfiles").withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId)).unique();
-  },
-});
-
-
-
-
-// New queries for candidates page with search and pagination
-export const listPaginated = query({
-  args: {
-    paginationOpts: paginationOptsValidator,
-    search: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const search = args.search?.toLowerCase().trim();
-    if(!search) {
-      return await ctx.db.query("candidates").order("desc").paginate(args.paginationOpts);
-    }
-
-    return await ctx.db.query("candidates").withSearchIndex("by_name", (q) => q.search("name", search)).paginate(args.paginationOpts);
-
-    
-  },
-});
 
 export const getCandidatesCount = query({
   args: {
@@ -331,43 +344,6 @@ export const getCandidatesCount = query({
   },
 });
 
-export const getCandidateById = query({
-  args: { candidateId: v.id("candidates") },
-  handler: async (ctx, args) => {
-    return await ctx.db.get(args.candidateId);
-  },
-});
-
-
-export const getProfilesByCandidateIds = query({
-  args: { candidateIds: v.array(v.id("candidates")) },
-  handler: async (ctx, args) => {
-    const profiles = [];
-    for (const candidateId of args.candidateIds) {
-      const profile = await ctx.db
-        .query("candidateProfiles")
-        .withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId))
-        .first();
-      if (profile) profiles.push(profile);
-    }
-    return profiles;
-  },
-});
-
-export const getSourceDataByCandidateIds = query({
-  args: { candidateIds: v.array(v.id("candidates")) },
-  handler: async (ctx, args) => {
-    const sourceData = [];
-    for (const candidateId of args.candidateIds) {
-      const data = await ctx.db
-        .query("candidateSourceData")
-        .withIndex("by_candidate_id", (q) => q.eq("candidateId", candidateId))
-        .first();
-      if (data) sourceData.push(data);
-    }
-    return sourceData;
-  },
-});
 
 export const getProcessingStatus = query({
   args: { candidateId: v.id("candidates") },

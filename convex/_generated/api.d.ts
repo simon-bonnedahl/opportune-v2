@@ -10,6 +10,7 @@
 
 import type * as candidates from "../candidates.js";
 import type * as clerk from "../clerk.js";
+import type * as companies from "../companies.js";
 import type * as embeddings from "../embeddings.js";
 import type * as embeddingsAction from "../embeddingsAction.js";
 import type * as http from "../http.js";
@@ -18,6 +19,7 @@ import type * as jobs from "../jobs.js";
 import type * as matches from "../matches.js";
 import type * as openai from "../openai.js";
 import type * as presence from "../presence.js";
+import type * as scoringGuidelines from "../scoringGuidelines.js";
 import type * as tables_candidates from "../tables/candidates.js";
 import type * as tables_jobs from "../tables/jobs.js";
 import type * as tasks from "../tasks.js";
@@ -43,6 +45,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   candidates: typeof candidates;
   clerk: typeof clerk;
+  companies: typeof companies;
   embeddings: typeof embeddings;
   embeddingsAction: typeof embeddingsAction;
   http: typeof http;
@@ -51,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   matches: typeof matches;
   openai: typeof openai;
   presence: typeof presence;
+  scoringGuidelines: typeof scoringGuidelines;
   "tables/candidates": typeof tables_candidates;
   "tables/jobs": typeof tables_jobs;
   tasks: typeof tasks;

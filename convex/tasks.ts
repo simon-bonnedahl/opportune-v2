@@ -7,6 +7,8 @@ import { Id } from "./_generated/dataModel";
 import { paginationOptsValidator } from "convex/server";
 import { CandidateProfileSections } from "./tables/candidates";
 import { validateCandidateProfile } from "./candidates";
+import { JobProfileSections } from "./tables/jobs";
+import { validateJobProfile } from "./jobs";
 
 
 
@@ -48,7 +50,7 @@ export async function enqueueTaskRerun(ctx: ActionCtx, taskId: Id<"tasks">) {
   const user = await ctx.runQuery(api.users.current);
   if (!user) throw new Error("User not found");
 
-  await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "queued", queuedAt: Date.now(), errorMessage: "", progress: 0, progressMessage: "", runAt: undefined, stoppedAt: undefined, attempts: task.attempts + 1, metadata: undefined, triggeredBy: "user", triggeredById: user._id});
+  await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "queued", queuedAt: Date.now(), errorMessage: "", progress: 0, progressMessage: "", runAt: undefined, stoppedAt: undefined, attempts: task.attempts + 1, metadata: {}, triggeredBy: "user", triggeredById: user._id,});
   const workId = await pool.enqueueAction(ctx, taskRef, { taskId, ...task.args, });
 
   return { taskId, workId };
@@ -186,12 +188,19 @@ export const task_tt_import = internalAction({
         //Step 1: import job
         const job = await ctx.runAction(internal.teamtailor.importJob, { teamtailorId });
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 10, progressMessage: "Job with id " + teamtailorId + " imported" });
-        //Step 2: create job record
-        const jobId = await ctx.runMutation(internal.jobs.createJob, {
-          teamtailorId,
-          title: job.title,
-          location: job.location,
 
+        //TOD: what if the job has no company name?
+        //Step 2: connect or create company
+        const companyId = await ctx.runMutation(internal.companies.connectOrCreate, { name: job.companyName });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 30, progressMessage: "Connected or created company with id " + companyId });
+
+        //Step 2: create job record
+        const jobId = await ctx.runMutation(internal.jobs.create, {
+          teamtailorId,
+          teamtailorTitle: job.teamtailorTitle,
+          companyId,
+          title: job.title,
+          orderNumber: job.orderNumber,
           rawData: job.rawData,
           processingTask: taskId,
           updatedAtTT: job.updatedAtTT,
@@ -199,6 +208,13 @@ export const task_tt_import = internalAction({
 
         });
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Job with id " + teamtailorId + " created" });
+
+        //Step 3: upsert job source data
+        await ctx.runMutation(internal.jobs.upsertSourceData, {
+          jobId,
+          teamtailorBody: job.body,
+        });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 75, progressMessage: "Upserted job source data for job with id " + teamtailorId });
         //Step 3: enqueue build profile task
         await enqueueTask(ctx, "build_profile", "task", { type: "job", id: jobId }, taskId);
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, progressMessage: "Queued build profile task for job with id " + teamtailorId });
@@ -238,9 +254,6 @@ export const task_build_profile = internalAction({
         const { profile, raw, metadata } = await ctx.runAction(internal.openai.buildCandidateProfile, { assessment: candidateSourceData?.assessment, hubertAnswers: candidateSourceData?.hubertAnswers, resumeSummary: candidateSourceData?.resumeSummary, linkedinSummary: candidateSourceData?.linkedinSummary });
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Built candidate profile", metadata: metadata });
 
-        //debug print profile
-        console.log("profile", profile);
-        console.log("raw", raw);
 
         //Step 3: upsert candidate profile
         await ctx.runMutation(internal.candidates.upsertProfile, {
@@ -270,7 +283,47 @@ export const task_build_profile = internalAction({
 
 
     }
-  }
+
+    if (type === "job") {
+      try {
+        const jobId = id as Id<"jobs">;
+        //update job processing task
+        await ctx.runMutation(internal.jobs.setProcessingTask, { jobId, processingTask: taskId });
+
+        //Step 1: query job source data
+        const jobSourceData = await ctx.runQuery(api.jobs.getSourceData, { jobId });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 25, progressMessage: "Queried job source data" });
+
+        //Step 2: build job profile
+        const { profile, raw, metadata } = await ctx.runAction(internal.openai.buildJobProfile, { teamTailorBody: jobSourceData?.teamtailorBody });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Built job profile", metadata: metadata });
+
+        //Step 3: upsert job profile
+        await ctx.runMutation(internal.jobs.upsertProfile, {
+          jobId,
+          raw,
+          metadata,
+          summary: profile.summary,
+          education: profile.education,
+          workTasks: profile.workTasks,
+          preferences: profile.preferences,
+          aspirations: profile.aspirations,
+          technicalSkills: profile.technicalSkills,
+          softSkills: profile.softSkills,
+        });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 75, progressMessage: "Upserted job profile" });
+        
+        //Step 4: enqueue embed profile task
+        await enqueueTask(ctx, "embed_profile", "task", { type: "job", id: jobId }, taskId);
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, stoppedAt: Date.now(), progressMessage: "Queued embed profile task for job with id " + id });
+
+      } catch (error) {
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when building job profile" });
+        return { success: false, message: "Job profile with id " + id + "could not be built" };
+      }
+      }
+    }
+  
 });
 
 
@@ -337,28 +390,114 @@ export const task_embed_profile = internalAction({
       }
 
     }
+
+    if (type === "job") {
+      try {
+        const jobId = id as Id<"jobs">;
+        //update job processing task
+        await ctx.runMutation(internal.jobs.setProcessingTask, { jobId, processingTask: taskId });
+
+        //Step 1: query job profile
+        const jobProfile = await ctx.runQuery(api.jobs.getProfile, { jobId });
+        if (!jobProfile) throw new Error("Job profile not found");
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 25, progressMessage: "Queried job profile" });
+        
+        //Step 2: check if all fields are present
+        validateJobProfile(jobProfile);
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Validated job profile" });
+        
+        //Step 3: embed job profile
+        const textsToEmbed = [
+          jobProfile.summary,
+          jobProfile.technicalSkills.map((skill) => skill.name).join(", "),
+          jobProfile.softSkills.map((skill) => skill.name).join(", "),
+          jobProfile.education.join(", "),
+          jobProfile.workTasks.join(", "),
+          jobProfile.preferences.join(", "),
+          jobProfile.aspirations.join(", ")
+        ];
+
+        const { embeddings, metadata } = await ctx.runAction(internal.openai.embedMany, { texts: textsToEmbed });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 75, progressMessage: "Embedded job profile", metadata });
+
+        //Step 4: enqueue job embeddings
+        const sections : JobProfileSections[] = ["summary", "technical_skills", "soft_skills", "education", "work_tasks", "preferences", "aspirations"];
+        const embeddingPromises = embeddings.map((embedding, index) => 
+        ctx.runMutation(internal.jobs.upsertEmbedding, { jobId, vector: embedding, section: sections[index], metadata: metadata })
+        );
+        await Promise.all(embeddingPromises);
+
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, stoppedAt: Date.now(), progressMessage: "Created job embeddings" });
+        return { success: true, message: "Job profile with id " + id + "embedded" };
+      } catch (error) {
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when embedding job profile" });
+        return { success: false, message: "Job profile with id " + id + "could not be embedded" };
+      }
+    }
   }
-
-
-
-
-
-
-
-
 });
+
+
+
 
 
 export const task_match = internalAction({
   args: {
     taskId: v.id("tasks"),
-    candidateId: v.optional(v.string()),
-    jobId: v.optional(v.string()),
+    candidateId: v.id("candidates"),
+    jobId: v.id("jobs"),
+    model: v.string(),
+    scoringGuidelineId: v.id("scoringGuidelines"),
   },
   handler: async (ctx, args) => {
-    const { taskId, candidateId, jobId } = args;
+    const { taskId, candidateId, jobId, model, scoringGuidelineId } = args;
+
     //set task to running
     await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", runAt: Date.now() });
+
+    try {
+
+    //update processing task
+    await ctx.runMutation(internal.candidates.setProcessingTask, { candidateId, processingTask: taskId });
+    await ctx.runMutation(internal.jobs.setProcessingTask, { jobId, processingTask: taskId });
+
+    //Step 1: query profiles
+    const candidateProfile = await ctx.runQuery(api.candidates.getProfile, { candidateId });
+    if (!candidateProfile) throw new Error("Candidate profile not found");
+    const jobProfile = await ctx.runQuery(api.jobs.getProfile, { jobId });
+    if (!jobProfile) throw new Error("Job profile not found");
+
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 25, progressMessage: "Queried profiles" });
+
+
+    //Step 2: fetch scoring guidelines
+    const scoringGuidelines = await ctx.runQuery(api.scoringGuidelines.get, { scoringGuidelineId });
+    if (!scoringGuidelines) throw new Error("Scoring guidelines not found");
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 35, progressMessage: "Queried scoring guidelines" });
+
+    //Step 3: match
+    const { response, metadata } = await ctx.runAction(internal.openai.match, { candidateProfile: candidateProfile, jobProfile: jobProfile, scoringGuidelines: scoringGuidelines.text });
+
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Fetching match", metadata: metadata });
+
+    //Step 4: create match
+    await ctx.runMutation(internal.matches.create, {
+      candidateId: candidateId,
+      jobId: jobId,
+      model,
+      score: response.score,
+      explanation: response.explanation,
+      scoringGuidelineId: scoringGuidelineId,
+      metadata: metadata,
+    });
+
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, stoppedAt: Date.now(), progressMessage: "Created match" });
+    return { success: true, message: "Match created" };
+    } catch (error) {
+      await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when creating match" });
+      return { success: false, message: "Match could not be created" };
+    }
+    
 
 
 

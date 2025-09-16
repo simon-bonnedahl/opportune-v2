@@ -1,23 +1,20 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { usePaginatedQuery, useMutation, useQuery } from "convex/react";
+import { useState } from "react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
 import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
-import { formatDate, formatDuration, formatShortDate, timeAgo } from "@/lib/format";
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TaskDetailsDialog } from "@/features/tasks/components/task-details-dialog";
+import { TaskDetailsDialog } from "@/components/tasks/task-details-dialog";
 import { TaskTableRow } from "@/components/tasks/task-table-row";
-import { Badge } from "@/components/ui/badge";
-import { Doc, Id } from "@/types";
+import { Id } from "@/lib/convex";
 
 const POOLS = ["import", "build", "embed", "match"] as const;
 
@@ -55,7 +52,7 @@ export default function TasksPage() {
 
 
 
-	const { results, status, loadMore } = usePaginatedQuery(
+	const { results, status } = usePaginatedQuery(
 		api.tasks.listPaginated,
 		{
 			workpool: poolFilter,

@@ -1,47 +1,26 @@
 "use client";
 
-import { useMemo } from "react";
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { JobDoc } from "@/types";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { api } from "@/lib/convex";
+import { useQuery } from "convex/react";
+import { Doc, Id } from "../../../convex/_generated/dataModel";
 
-interface ProcessingStatus {
-  jobId: string;
-  status: "queued" | "running" | "succeeded" | "failed" | "canceled" | "none" | "unknown";
-  progress: number;
-  progressMessage: string;
-  errorMessage: string;
-}
 
 interface JobsTableProps {
-  data: JobDoc[];
+  data: Doc<"jobs">[];
   isLoading?: boolean;
-  pagination: {
-    currentPage: number;
-    perPage: number;
-    totalPages: number;
-    totalCount: number;
-    hasNext: boolean;
-    hasPrev: boolean;
-  };
-  onPageChange: (page: number, perPage: number, sort?: string) => void;
-  onRowClick?: (jobId: string) => void;
-  processingStatuses?: ProcessingStatus[];
+  onRowClick?: (jobId: Id<"jobs">) => void;
 }
 
 export function JobsTable({ 
   data, 
   isLoading = false, 
-  pagination,
-  onPageChange,
   onRowClick,
-  processingStatuses = []
 }: JobsTableProps) {
   
   function getInitials(text?: string) {
@@ -52,7 +31,7 @@ export function JobsTable({
     return (first + last).toUpperCase();
   }
 
-  function getJobTags(row: JobDoc): string[] {
+  function getJobTags(row: Doc<"jobs">): string[] {
     const tags: string[] = [];
     const attrs = row?.rawData?.attributes ?? {};
     if (Array.isArray(attrs?.tags)) {
@@ -65,9 +44,8 @@ export function JobsTable({
     return tags;
   }
 
-  function ProcessingStatusPill({ jobId }: { jobId: string }) {
-    const status = processingStatuses.find(p => p.jobId === jobId);
-    if (!status) return <div className="text-xs text-muted-foreground">-</div>;
+  function ProcessingStatusPill({ jobId }: { jobId: Id<"jobs"> }) {
+    const processingStatus = useQuery(api.jobs.getProcessingStatus, { jobId });
     
     const getStatusColor = (status: string) => {
       switch (status) {
@@ -95,10 +73,10 @@ export function JobsTable({
 
     return (
       <div className="inline-flex items-center gap-2 text-xs">
-        <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(status.status)}`} />
-        <span>{getStatusLabel(status.status)}</span>
-        {status.status === "running" && status.progress > 0 && (
-          <span className="text-muted-foreground">({status.progress}%)</span>
+        <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(processingStatus?.status ?? "unknown")}`} />
+        <span>{getStatusLabel(processingStatus?.status ?? "unknown")}</span>
+        {processingStatus?.status === "running" && processingStatus?.progress > 0 && (
+          <span className="text-muted-foreground">({processingStatus?.progress}%)</span>
         )}
       </div>
     );
@@ -169,8 +147,8 @@ export function JobsTable({
                 <TableRow key={job._id} className="hover:bg-muted/50 cursor-pointer" onClick={() => onRowClick?.(job._id)}>
                   <TableCell className="w-64">
                     <div className="flex items-center gap-3">
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback className="text-[11px]">
+                      <Avatar className="size-10">
+                        <AvatarFallback className="text-sm">
                           {getInitials(job?.rawData?.attributes?.title ?? String(job._id))}
                         </AvatarFallback>
                       </Avatar>
@@ -210,27 +188,7 @@ export function JobsTable({
       <div className="flex-shrink-0 border-t">
         <div className="flex items-center justify-center p-4">
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(pagination.currentPage - 1, pagination.perPage)}
-              disabled={!pagination.hasPrev || isLoading}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            
-            <div className="text-sm text-muted-foreground px-4">
-              Page {pagination.currentPage} of {pagination.totalPages}
-            </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(pagination.currentPage + 1, pagination.perPage)}
-              disabled={!pagination.hasNext || isLoading}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+          
           </div>
         </div>
       </div>

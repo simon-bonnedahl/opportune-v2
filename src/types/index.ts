@@ -35,13 +35,6 @@ export type MainNavItem = NavItemWithOptionalChildren;
 
 export type SidebarNavItem = NavItemWithChildren;
 
-// Convex document helpers
-export type { Doc, Id } from "../../convex/_generated/dataModel";
-
-// Jobs, Candidates, Matches docs derived from Convex schema
-export type JobDoc = import("../../convex/_generated/dataModel").Doc<"jobs">;
-export type CandidateDoc = import("../../convex/_generated/dataModel").Doc<"candidates">;
-export type MatchDoc = import("../../convex/_generated/dataModel").Doc<"matches">;
 
 // Processing status shapes from Convex queries (teamtailor.ts)
 export interface InProcessItem {

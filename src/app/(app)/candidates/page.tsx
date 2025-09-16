@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useAction, usePaginatedQuery } from "convex/react";
-import { api } from "../../../../convex/_generated/api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,24 +10,24 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { formatDate } from "@/lib/format";
-import type { CandidateDoc, Id, JobDoc, MatchDoc, CandidateProcessingStatus, Doc } from "@/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CandidatesTable } from "@/components/candidates/candidates-table";
+import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
 import { useDebounce } from "@/hooks/use-debounce";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Info } from "lucide-react";
+import { api, Id } from "@/lib/convex";
 
 export default function CandidatesPage() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<Id<"candidates"> | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const debouncedSearchText = useDebounce(searchText, 500);
 
   const addCandidate = useAction(api.candidates.add);
 
   const totalCount = useQuery(api.candidates.getCandidatesCount, { search: debouncedSearchText }) as number | undefined;
-  const { results, status, loadMore } = usePaginatedQuery(
+  const { results, status } = usePaginatedQuery(
 		api.candidates.listPaginated,
 		{ search: debouncedSearchText },
 		{ initialNumItems: 50 }
@@ -105,55 +104,23 @@ function getInitials(name?: string) {
   return (first + last).toUpperCase();
 }
 
-function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  type CandidateProfileDoc = Doc<"candidateProfiles">;
-  type CandidateSourceData = Doc<"candidateSourceData">;
-  const [candidate] = (useQuery(api.candidates.getProfilesByCandidateIds, { candidateIds: [id as unknown as Id<"candidates">] }) as CandidateProfileDoc[] | undefined) ?? [];
-  const [source] = (useQuery(api.candidates.getSourceDataByCandidateIds, { candidateIds: [id as unknown as Id<"candidates">] }) as CandidateSourceData[] | undefined) ?? [];
-  const core = useQuery(api.candidates.getCandidateById, { candidateId: id as unknown as Id<"candidates"> }) as CandidateDoc | undefined;
+function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () => void }) {
+  const profile = useQuery(api.candidates.getProfile, { candidateId: id  }) 
+  const sourceData = useQuery(api.candidates.getSourceData, { candidateId: id  }) 
+  const candidate = useQuery(api.candidates.get, { candidateId: id  })
   const [open, setOpen] = useState(true);
   const close = () => {
     setOpen(false);
     onClose();
   };
-  const displayName = core?.name ?? "Candidate";
-  const initials = getInitials(displayName);
-  const importedAt = (core?.updatedAt ?? candidate?.updatedAt)
-    ? new Date((core?.updatedAt ?? candidate?.updatedAt) as number).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
-    : "";
-  const matches = useQuery(api.matches.listMatchesForCandidate, { candidateId: id as unknown as Id<"candidates">, limit: 100 }) as MatchDoc[] | undefined;
+
+  const initials = getInitials(candidate?.name);
+
+  const matches = []
   const [selectedModel, setSelectedModel] = useState<string>("gpt-5");
-  const availableModels = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of matches ?? []) {
-      const v = typeof m?.model === "string" ? m.model : undefined;
-      if (v) set.add(v);
-    }
-    set.add("gpt-5");
-    return Array.from(set).sort();
-  }, [matches]);
-  const filteredMatches = useMemo(() => {
-    return (matches ?? []).filter((m) => ((m?.model ?? "unknown") === selectedModel));
-  }, [matches, selectedModel]);
-  const jobs = useQuery(api.jobs.getJobs) as JobDoc[] | undefined;
-  const matchRows = (filteredMatches ?? []).map((m) => {
-    const job = (jobs ?? []).find((j) => String(j._id) === String(m.jobId));
-    const title = job?.rawData?.attributes?.title ?? String(m.jobId);
-    const locations: string[] = [];
-    const attrs = job?.rawData?.attributes ?? {};
-    if (typeof attrs?.location === "string") locations.push(attrs.location);
-    if (typeof attrs?.["location-name"] === "string") locations.push(attrs["location-name"]);
-    const matchedAt = new Date(m.updatedAt ?? m._creationTime).toLocaleString();
-    const importedAt = job ? new Date(job.updatedAt ?? job._creationTime).toLocaleDateString() : "";
-    return {
-      id: String(m._id),
-      title,
-      scorePct: Math.round((Number(m.score) || 0) * 100),
-      locations,
-      matchedAt,
-      importedAt,
-    };
-  });
+ 
+  
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) close(); }}>
       <DialogContent className="h-[85vh] overflow-hidden flex flex-col w-full max-w-[calc(100%-2rem)] sm:!max-w-[95vw] xl:!max-w-[1200px]">
@@ -163,35 +130,22 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
               <Avatar className="size-10">
                 <AvatarFallback className="text-[11px]">{initials || "?"}</AvatarFallback>
               </Avatar>
-              <DialogTitle className="text-base font-semibold leading-none">{displayName}</DialogTitle>
+              <DialogTitle className="text-base font-semibold leading-none">{candidate?.name}</DialogTitle>
             </div>
             <div className="flex items-center gap-3 text-xs">
-              {importedAt && <div>{importedAt}</div>}
+              {candidate?._creationTime && <div>{new Date(candidate._creationTime).toLocaleDateString()}</div>}
               <div className="flex items-center gap-2"><span className="inline-block size-2 rounded-full bg-emerald-500" />Processed</div>
             </div>
           </div>
         </DialogHeader>
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <Tabs defaultValue="matches" className="flex-1 flex flex-col min-h-0">
-            <AnimatedTabList />
+            <AnimatedTabList profile={profile} />
             <TabsContent value="matches" className="flex-1 flex flex-col min-h-0 p-2">
               <div className="px-2 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Input placeholder="Search..." className="h-8 w-60" />
-                  <Select value={selectedModel} onValueChange={setSelectedModel}>
-                    <SelectTrigger className="h-8 w-40">
-                      <SelectValue placeholder="Model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button variant="outline" size="sm" className="h-8">Default</Button>
-                  <Button variant="outline" size="sm" className="h-8">Date</Button>
-                  <Button variant="outline" size="sm" className="h-8">Tags</Button>
-                  <Button variant="outline" size="sm" className="h-8">Score</Button>
+                 
                 </div>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto rounded border bg-background">
@@ -208,32 +162,7 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {(matchRows ?? []).map((row, idx) => (
-                      <tr key={row.id} className="border-t border-[var(--border)]">
-                        <td className="p-2 text-center text-neutral-400">{idx + 1}</td>
-                        <td className="p-2">
-                          <div className="font-medium truncate">{row.title}</div>
-                        </td>
-                        <td className="p-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-28">
-                              <Progress value={row.scorePct} className="h-2" />
-                            </div>
-                            <span className="tabular-nums text-xs text-neutral-300">{row.scorePct}%</span>
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          <div className="flex flex-wrap gap-1">
-                            {row.locations.map((t: string) => (
-                              <Badge key={t} variant="outline" className="px-1 py-0 text-[11px]">{t}</Badge>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="p-2 text-xs text-neutral-300">{row.matchedAt}</td>
-                        <td className="p-2 text-xs text-neutral-300">{row.importedAt}</td>
-                        <td className="p-2 text-xs text-neutral-300">...</td>
-                      </tr>
-                    ))}
+                    
                   </tbody>
                 </table>
               </div>
@@ -247,28 +176,40 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                 <Button variant="outline" size="icon">»</Button>
               </div>
             </TabsContent>
-            <TabsContent value="profile" className="overflow-y-auto p-3">
+            <TabsContent value="profile" className="overflow-y-auto p-3 relative">
               {candidate ? (
                 <div className="space-y-6 text-sm">
-                  {candidate?.summary && (
-                    <div className="space-y-2">
-                      <div className="font-medium">Summary</div>
-                      <p className="whitespace-pre-wrap">{candidate.summary}</p>
-                    </div>
-                  )}
-
-                  {candidate?.description && (
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Profile</h3>
+                    <ProfileInfoTooltip 
+                      modelId={profile?.metadata?.modelId} 
+                      confidence={profile?.metadata?.confidence}
+                    >
+                      <div>
+                        <Info className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+                      </div>
+                    </ProfileInfoTooltip>
+                  </div>
+                  {profile?.description && (
                     <div className="space-y-2">
                       <div className="font-medium">Description</div>
-                      <p className="whitespace-pre-wrap">{candidate.description}</p>
+                      <p className="whitespace-pre-wrap">{profile.description}</p>
+                    </div>
+                  )}
+                  {profile?.summary && (
+                    <div className="space-y-2">
+                      <div className="font-medium">Summary</div>
+                      <p className="whitespace-pre-wrap">{profile.summary}</p>
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.education) && candidate.education.length > 0 && (
+                  
+
+                  {Array.isArray(profile?.education) && profile.education.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Education</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {candidate.education.map((e, i: number) => (
+                        {profile.education.map((e: string, i: number) => (
                           <li key={i} className="space-y-0.5">
                             <div className="font-medium">{e || "Education"}</div>
                           </li>
@@ -277,11 +218,11 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.technicalSkills) && candidate.technicalSkills.length > 0 && (
+                  {Array.isArray(profile?.technicalSkills) && profile.technicalSkills.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Technical Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {candidate.technicalSkills.map((s, i: number) => (
+                        {profile.technicalSkills.map((s: any, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
                             {s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}
                           </Badge>
@@ -290,11 +231,11 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.softSkills) && candidate.softSkills.length > 0 && (
+                  {Array.isArray(profile?.softSkills) && profile.softSkills.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Soft Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {candidate.softSkills.map((s, i: number) => (
+                        {profile.softSkills.map((s: any, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
                             {s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}
                           </Badge>
@@ -303,11 +244,11 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.workExperience) && candidate.workExperience.length > 0 && (
+                  {Array.isArray(profile?.workExperience) && profile.workExperience.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Work Experience</div>
                       <ul className="space-y-3 list-disc pl-5">
-                        {candidate.workExperience.map((w, i: number) => (
+                          {profile.workExperience.map((w: string, i: number) => (
                           <li key={i} className="space-y-1">
                             <div className="font-medium">{w || "Work Experience"}</div>
                           </li>
@@ -316,11 +257,11 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.preferences) && candidate.preferences.length > 0 && (
+                  {Array.isArray(profile?.preferences) && profile.preferences.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Preferences</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {candidate.preferences.map((p, i: number) => (
+                        {profile.preferences.map((p: string, i: number) => (
                           <li key={i} className="space-y-1">
                             <div className="font-medium">{p || "Preference"}</div>
                           </li>
@@ -329,11 +270,11 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
-                  {Array.isArray(candidate?.aspirations) && candidate.aspirations.length > 0 && (
+                  {Array.isArray(profile?.aspirations) && profile.aspirations.length > 0 && (
                     <div className="space-y-2">
                       <div className="font-medium">Aspirations</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {candidate.aspirations.map((a, i: number) => (
+                        {profile.aspirations.map((a: string, i: number) => (
                           <li key={i} className="space-y-1">
                             <div className="font-medium">{a || "Aspiration"}</div>
                           </li>
@@ -342,7 +283,7 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
                     </div>
                   )}
 
-                  {!candidate?.summary && !candidate?.description && (!candidate?.technicalSkills || candidate.technicalSkills.length === 0) && (!candidate?.softSkills || candidate.softSkills.length === 0) && (
+                  {!profile?.summary && !profile?.description && (!profile?.technicalSkills || profile.technicalSkills.length === 0) && (!profile?.softSkills || profile.softSkills.length === 0) && (
                     <div className="text-sm text-neutral-400">No profile yet</div>
                   )}
                 </div>
@@ -351,20 +292,20 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
               )}
             </TabsContent>
             <TabsContent value="assessment" className="overflow-y-auto p-3">
-              {typeof source?.assessment === "string" && source.assessment.trim().length > 0 ? (
+              {typeof sourceData?.assessment === "string" && sourceData.assessment.trim().length > 0 ? (
                 <div className="space-y-2 text-sm">
                   <div className="font-medium">Assessment</div>
-                  <p className="whitespace-pre-wrap">{source.assessment}</p>
+                  <p className="whitespace-pre-wrap">{sourceData.assessment}</p>
                 </div>
               ) : (
                 <div className="text-sm text-neutral-400">No assessment</div>
               )}
             </TabsContent>
             <TabsContent value="cv" className="overflow-y-auto p-3">
-              {source?.resumeSummary ? (
+              {sourceData?.resumeSummary ? (
                 <div className="space-y-2 text-sm">
                   <div className="font-medium">Resume Summary</div>
-                  <p className="whitespace-pre-wrap">{source.resumeSummary}</p>
+                  <p className="whitespace-pre-wrap">{sourceData.resumeSummary}</p>
                 </div>
               ) : (
                 <div className="text-sm text-neutral-400">No resume summary available</div>
@@ -377,7 +318,7 @@ function CandidateDialog({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
-function AnimatedTabList() {
+function AnimatedTabList({ profile }: { profile?: any }) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const updateIndicator = () => {
     const el = listRef.current;
@@ -410,9 +351,9 @@ function AnimatedTabList() {
   };
   return (
     <TabsList
-      ref={listRef as any}
+      ref={listRef as React.RefObject<HTMLDivElement>}
       className="relative h-11 p-0 border-b w-full justify-start rounded-none bg-transparent"
-      onClick={onValueChange as any}
+      onClick={onValueChange as React.MouseEventHandler<HTMLDivElement>}
     >
       <div
         data-indicator
@@ -421,7 +362,7 @@ function AnimatedTabList() {
         style={{ width: 0, transform: 'translateX(0)' }}
       />
       <TabsTrigger value="matches" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Matches</TabsTrigger>
-      <TabsTrigger value="profile" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Candidate Profile</TabsTrigger>
+      <TabsTrigger value="profile" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Profile</TabsTrigger>
       <TabsTrigger value="assessment" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Assessment</TabsTrigger>
       <TabsTrigger value="cv" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">CV</TabsTrigger>
     </TabsList>
