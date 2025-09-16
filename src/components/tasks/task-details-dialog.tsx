@@ -14,7 +14,7 @@ import {
 	Calendar
 } from "lucide-react";
 import { formatDuration } from "@/lib/format";
-import { Doc } from "@/types";
+import { Doc, Id } from "@/lib/convex";
 import { useAction } from "convex/react";
 import { api } from "@/lib/convex";
 import { 
@@ -44,7 +44,7 @@ const STATUS_COLORS = {
 interface TaskDetailsDialogProps {
 	task: Doc<"tasks">;
 	onClose: () => void;
-	onTaskClick?: (taskId: import("@/types").Id<"tasks">) => void;
+	onTaskClick?: (taskId: Id<"tasks">) => void;
 }
 
 export function TaskDetailsDialog({ task, onClose, onTaskClick }: TaskDetailsDialogProps) {

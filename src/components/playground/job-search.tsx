@@ -1,5 +1,5 @@
 import { api, Doc } from "@/lib/convex";
-import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { Avatar, AvatarFallback } from "../ui/avatar";
 import { CommandGroup, CommandItem, CommandEmpty, Command,  CommandList, CommandInput } from "../ui/command";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { useQuery } from "convex/react";

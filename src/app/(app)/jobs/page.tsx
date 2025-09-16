@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useAction, usePaginatedQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Input } from "@/components/ui/input";
@@ -10,15 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { JobsTable } from "@/components/jobs/jobs-table";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
 import { useDebounce } from "@/hooks/use-debounce";
 import { toast } from "sonner";
 import { Plus, Info } from "lucide-react";
-import { Doc, Id } from "../../../../convex/_generated/dataModel";
+import { Id } from "@/lib/convex";
+
 
 export default function JobsPage() {
   const [selectedId, setSelectedId] = useState<Id<"jobs"> | null>(null);
@@ -135,7 +134,11 @@ function JobDialog({ id, onClose }: { id: Id<"jobs">; onClose: () => void }) {
         </DialogHeader>
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <Tabs defaultValue="matches" className="flex-1 flex flex-col min-h-0">
-            <AnimatedTabList profile={profile} />
+            <TabsList>
+              <TabsTrigger value="matches">Matches</TabsTrigger>
+              <TabsTrigger value="profile">Profile</TabsTrigger>
+              <TabsTrigger value="raw">SourceData</TabsTrigger>
+            </TabsList>
             <TabsContent value="matches" className="flex-1 flex flex-col min-h-0 p-2">
               <div className="px-2 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -276,55 +279,5 @@ function JobDialog({ id, onClose }: { id: Id<"jobs">; onClose: () => void }) {
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function AnimatedTabList({ profile }: { profile?: any }) {
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const updateIndicator = () => {
-    const el = listRef.current;
-    if (!el) return;
-    const active = el.querySelector('[data-state="active"]') as HTMLElement | null;
-    if (!active) return;
-    const containerRect = el.getBoundingClientRect();
-    const targetRect = active.getBoundingClientRect();
-    const left = targetRect.left - containerRect.left;
-    const width = targetRect.width;
-    const indicator = el.querySelector('[data-indicator]') as HTMLDivElement | null;
-    if (indicator) {
-      indicator.style.transform = `translateX(${left}px)`;
-      indicator.style.width = `${width}px`;
-    }
-  };
-  useEffect(() => {
-    updateIndicator();
-    const ro = new ResizeObserver(() => updateIndicator());
-    if (listRef.current) ro.observe(listRef.current);
-    window.addEventListener('resize', updateIndicator);
-    return () => {
-      window.removeEventListener('resize', updateIndicator);
-      ro.disconnect();
-    };
-  }, []);
-  const onValueChange = () => {
-    // schedule after DOM state updates
-    requestAnimationFrame(updateIndicator);
-  };
-  return (
-    <TabsList
-      ref={listRef as React.RefObject<HTMLDivElement>}
-      className="relative h-11 p-0 border-b w-full justify-start rounded-none bg-transparent"
-      onClick={onValueChange as React.MouseEventHandler<HTMLDivElement>}
-    >
-      <div
-        data-indicator
-        aria-hidden
-        className="absolute bottom-0 left-0 h-[2px] bg-primary transition-[transform,width] duration-300 ease-out"
-        style={{ width: 0, transform: 'translateX(0)' }}
-      />
-      <TabsTrigger value="matches" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Matches</TabsTrigger>
-      <TabsTrigger value="profile" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Profile</TabsTrigger>
-      <TabsTrigger value="raw" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Raw Data</TabsTrigger>
-    </TabsList>
   );
 }

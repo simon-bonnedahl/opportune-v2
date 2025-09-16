@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "../../../../convex/_generated/api";
@@ -18,7 +18,7 @@ import { Id } from "@/lib/convex";
 
 const POOLS = ["import", "build", "embed", "match"] as const;
 
-export default function TasksPage() {
+function TasksPageContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [range, setRange] = useState<DateRange | undefined>(() => {
@@ -243,4 +243,62 @@ export default function TasksPage() {
 	);
 }
 
-
+export default function TasksPage() {
+	return (
+		<Suspense fallback={
+			<div className="w-full px-4 py-4">
+				<Card className="max-w-7xl mx-auto">
+					<div className="flex flex-wrap items-center justify-between p-4 border-b">
+						<div className="flex items-center gap-4">
+							<h1 className="text-lg font-semibold">Tasks</h1>
+							<div className="text-md text-muted-foreground">
+								<Skeleton className="h-4 w-16" />
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<Skeleton className="h-8 w-[120px]" />
+							<Skeleton className="h-8 w-20" />
+							<Skeleton className="h-8 w-32" />
+						</div>
+					</div>
+					<div className="max-h-[75vh] overflow-y-auto">
+						<Table>
+							<TableBody>
+								{Array.from({ length: 5 }).map((_, i) => (
+									<TableRow key={i}>
+										<TableCell className="whitespace-nowrap">
+											<Skeleton className="h-4 w-16" />
+										</TableCell>
+										<TableCell className="whitespace-nowrap">
+											<Skeleton className="h-4 w-24" />
+										</TableCell>
+										<TableCell className="whitespace-nowrap">
+											<Skeleton className="h-4 w-20" />
+										</TableCell>
+										<TableCell className="whitespace-nowrap">
+											<Skeleton className="h-4 w-32" />
+										</TableCell>
+										<TableCell className="whitespace-nowrap">
+											<div className="flex flex-col gap-1">
+												<div className="flex items-center gap-2">
+													<Skeleton className="h-2.5 w-2.5 rounded-full" />
+													<Skeleton className="h-4 w-16" />
+												</div>
+												<Skeleton className="h-3 w-20" />
+											</div>
+										</TableCell>
+										<TableCell className="text-right">
+											<Skeleton className="h-8 w-8 rounded" />
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</div>
+				</Card>
+			</div>
+		}>
+			<TasksPageContent />
+		</Suspense>
+	);
+}

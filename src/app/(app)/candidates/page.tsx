@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState } from "react";
 import { useQuery, useAction, usePaginatedQuery } from "convex/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CandidatesTable } from "@/components/candidates/candidates-table";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
@@ -21,21 +19,19 @@ import { api, Id } from "@/lib/convex";
 
 export default function CandidatesPage() {
   const [selectedId, setSelectedId] = useState<Id<"candidates"> | null>(null);
-  const [searchText, setSearchText] = useState<string>("");
-  const debouncedSearchText = useDebounce(searchText, 500);
+  const [search, setSearch] = useState<string>("");
+  const debouncedSearch = useDebounce(search, 500);
 
   const addCandidate = useAction(api.candidates.add);
 
-  const totalCount = useQuery(api.candidates.getCandidatesCount, { search: debouncedSearchText }) as number | undefined;
+  const totalCount = useQuery(api.candidates.getCandidatesCount, { search: debouncedSearch })
   const { results, status } = usePaginatedQuery(
 		api.candidates.listPaginated,
-		{ search: debouncedSearchText },
+		{ search: debouncedSearch },
 		{ initialNumItems: 50 }
 	)
 
-  const handleSearch = (value: string) => {
-    setSearchText(value);
-  };
+
 
   const handleAddCandidate = async () => {
     const teamtailorId = window.prompt("Enter TeamTailor Candidate ID:");
@@ -68,8 +64,8 @@ export default function CandidatesPage() {
           <div className="flex items-center gap-2">
             <Input
               placeholder="Search candidates..."
-              value={searchText}
-              onChange={(e) => handleSearch(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-64"
             />
           
@@ -116,8 +112,6 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
 
   const initials = getInitials(candidate?.name);
 
-  const matches = []
-  const [selectedModel, setSelectedModel] = useState<string>("gpt-5");
  
   
 
@@ -128,7 +122,7 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
           <div className="flex items-center justify-between p-2">
             <div className="flex items-center gap-3">
               <Avatar className="size-10">
-                <AvatarFallback className="text-[11px]">{initials || "?"}</AvatarFallback>
+                <AvatarFallback className="text-sm">{initials || "?"}</AvatarFallback>
               </Avatar>
               <DialogTitle className="text-base font-semibold leading-none">{candidate?.name}</DialogTitle>
             </div>
@@ -140,7 +134,20 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
         </DialogHeader>
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           <Tabs defaultValue="matches" className="flex-1 flex flex-col min-h-0">
-            <AnimatedTabList profile={profile} />
+            <TabsList>
+                <TabsTrigger value="matches">
+                  Matches
+                </TabsTrigger>
+                <TabsTrigger value="profile">
+                  Profile
+                </TabsTrigger>
+                <TabsTrigger value="assessment">
+                  Assessment
+                </TabsTrigger>
+                <TabsTrigger value="resume">
+                  Resume summary
+                </TabsTrigger>
+              </TabsList>
             <TabsContent value="matches" className="flex-1 flex flex-col min-h-0 p-2">
               <div className="px-2 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -165,15 +172,6 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     
                   </tbody>
                 </table>
-              </div>
-              <div className="shrink-0 flex items-center justify-center gap-2 py-3 border-t mt-2">
-                <Button variant="outline" size="icon">«</Button>
-                <Button variant="outline" size="sm">-5</Button>
-                <Button variant="outline" size="icon">‹</Button>
-                <span className="text-sm px-2">1 / 1</span>
-                <Button variant="outline" size="icon">›</Button>
-                <Button variant="outline" size="sm">+5</Button>
-                <Button variant="outline" size="icon">»</Button>
               </div>
             </TabsContent>
             <TabsContent value="profile" className="overflow-y-auto p-3 relative">
@@ -209,9 +207,9 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     <div className="space-y-2">
                       <div className="font-medium">Education</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {profile.education.map((e: string, i: number) => (
+                        {profile.education.map((education: string, i: number) => (
                           <li key={i} className="space-y-0.5">
-                            <div className="font-medium">{e || "Education"}</div>
+                            <div className="font-medium">{education || "Education"}</div>
                           </li>
                         ))}
                       </ul>
@@ -222,9 +220,9 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     <div className="space-y-2">
                       <div className="font-medium">Technical Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {profile.technicalSkills.map((s: any, i: number) => (
+                        {profile.technicalSkills.map((skill, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
-                            {s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}
+                            {skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}
                           </Badge>
                         ))}
                       </div>
@@ -235,9 +233,9 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     <div className="space-y-2">
                       <div className="font-medium">Soft Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {profile.softSkills.map((s: any, i: number) => (
+                        {profile.softSkills.map((skill, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
-                            {s?.name}{typeof s?.score === "number" ? ` (${s.score})` : ""}
+                            {skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}
                           </Badge>
                         ))}
                       </div>
@@ -248,9 +246,9 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     <div className="space-y-2">
                       <div className="font-medium">Work Experience</div>
                       <ul className="space-y-3 list-disc pl-5">
-                          {profile.workExperience.map((w: string, i: number) => (
+                          {profile.workExperience.map((workExperience: string, i: number) => (
                           <li key={i} className="space-y-1">
-                            <div className="font-medium">{w || "Work Experience"}</div>
+                            <div className="font-medium">{workExperience || "Work Experience"}</div>
                           </li>
                         ))}
                       </ul>
@@ -261,9 +259,9 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     <div className="space-y-2">
                       <div className="font-medium">Preferences</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {profile.preferences.map((p: string, i: number) => (
+                        {profile.preferences.map((preference: string, i: number) => (
                           <li key={i} className="space-y-1">
-                            <div className="font-medium">{p || "Preference"}</div>
+                            <div className="font-medium">{preference || "Preference"}</div>
                           </li>
                         ))}
                       </ul>
@@ -274,9 +272,9 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                     <div className="space-y-2">
                       <div className="font-medium">Aspirations</div>
                       <ul className="space-y-2 list-disc pl-5">
-                        {profile.aspirations.map((a: string, i: number) => (
+                        {profile.aspirations.map((aspiration: string, i: number) => (
                           <li key={i} className="space-y-1">
-                            <div className="font-medium">{a || "Aspiration"}</div>
+                            <div className="font-medium">{aspiration || "Aspiration"}</div>
                           </li>
                         ))}
                       </ul>
@@ -301,7 +299,7 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
                 <div className="text-sm text-neutral-400">No assessment</div>
               )}
             </TabsContent>
-            <TabsContent value="cv" className="overflow-y-auto p-3">
+            <TabsContent value="resume" className="overflow-y-auto p-3">
               {sourceData?.resumeSummary ? (
                 <div className="space-y-2 text-sm">
                   <div className="font-medium">Resume Summary</div>
@@ -315,57 +313,6 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function AnimatedTabList({ profile }: { profile?: any }) {
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const updateIndicator = () => {
-    const el = listRef.current;
-    if (!el) return;
-    const active = el.querySelector('[data-state="active"]') as HTMLElement | null;
-    if (!active) return;
-    const containerRect = el.getBoundingClientRect();
-    const targetRect = active.getBoundingClientRect();
-    const left = targetRect.left - containerRect.left;
-    const width = targetRect.width;
-    const indicator = el.querySelector('[data-indicator]') as HTMLDivElement | null;
-    if (indicator) {
-      indicator.style.transform = `translateX(${left}px)`;
-      indicator.style.width = `${width}px`;
-    }
-  };
-  useEffect(() => {
-    updateIndicator();
-    const ro = new ResizeObserver(() => updateIndicator());
-    if (listRef.current) ro.observe(listRef.current);
-    window.addEventListener('resize', updateIndicator);
-    return () => {
-      window.removeEventListener('resize', updateIndicator);
-      ro.disconnect();
-    };
-  }, []);
-  const onValueChange = () => {
-    // schedule after DOM state updates
-    requestAnimationFrame(updateIndicator);
-  };
-  return (
-    <TabsList
-      ref={listRef as React.RefObject<HTMLDivElement>}
-      className="relative h-11 p-0 border-b w-full justify-start rounded-none bg-transparent"
-      onClick={onValueChange as React.MouseEventHandler<HTMLDivElement>}
-    >
-      <div
-        data-indicator
-        aria-hidden
-        className="absolute bottom-0 left-0 h-[2px] bg-primary transition-[transform,width] duration-300 ease-out"
-        style={{ width: 0, transform: 'translateX(0)' }}
-      />
-      <TabsTrigger value="matches" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Matches</TabsTrigger>
-      <TabsTrigger value="profile" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Profile</TabsTrigger>
-      <TabsTrigger value="assessment" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">Assessment</TabsTrigger>
-      <TabsTrigger value="cv" className="h-11 px-5 rounded-none text-muted-foreground data-[state=active]:text-foreground bg-transparent data-[state=active]:bg-transparent">CV</TabsTrigger>
-    </TabsList>
   );
 }
 
