@@ -11,6 +11,7 @@
 import type * as candidates from "../candidates.js";
 import type * as clerk from "../clerk.js";
 import type * as companies from "../companies.js";
+import type * as cronz from "../cronz.js";
 import type * as embeddings from "../embeddings.js";
 import type * as embeddingsAction from "../embeddingsAction.js";
 import type * as http from "../http.js";
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   candidates: typeof candidates;
   clerk: typeof clerk;
   companies: typeof companies;
+  cronz: typeof cronz;
   embeddings: typeof embeddings;
   embeddingsAction: typeof embeddingsAction;
   http: typeof http;
@@ -467,6 +469,57 @@ export declare const components: {
         "internal",
         { roomId: string; userId: string },
         null
+      >;
+    };
+  };
+  crons: {
+    public: {
+      del: FunctionReference<
+        "mutation",
+        "internal",
+        { identifier: { id: string } | { name: string } },
+        null
+      >;
+      get: FunctionReference<
+        "query",
+        "internal",
+        { identifier: { id: string } | { name: string } },
+        {
+          args: Record<string, any>;
+          functionHandle: string;
+          id: string;
+          name?: string;
+          schedule:
+            | { kind: "interval"; ms: number }
+            | { cronspec: string; kind: "cron"; tz?: string };
+        } | null
+      >;
+      list: FunctionReference<
+        "query",
+        "internal",
+        {},
+        Array<{
+          args: Record<string, any>;
+          functionHandle: string;
+          id: string;
+          name?: string;
+          schedule:
+            | { kind: "interval"; ms: number }
+            | { cronspec: string; kind: "cron"; tz?: string };
+        }>
+      >;
+      register: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          args: Record<string, any>;
+          functionHandle: string;
+          name?: string;
+          schedule:
+            | { kind: "interval"; ms: number }
+            | { cronspec: string; kind: "cron"; tz?: string };
+        },
+        string
       >;
     };
   };

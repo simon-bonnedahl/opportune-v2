@@ -23,6 +23,7 @@ import { Doc, Id } from "@/lib/convex";
 import { CandidateSearch } from "@/components/playground/candidate-search";
 import { JobSearch } from "@/components/playground/job-search";
 import { Input } from "@/components/ui/input";
+import { Icons } from "@/components/icons";
 
 export default function PlaygroundPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<Doc<"candidates"> | null>(null);
@@ -30,6 +31,7 @@ export default function PlaygroundPage() {
   const [selectedScoreCard, setSelectedScoreCard] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("gpt-5");
   const [openModelDialog, setOpenModelDialog] = useState<boolean>(false);
+  const [currentTaskId, setCurrentTaskId] = useState<Id<"tasks"> | null>(null);
 
   const [selectedScoringGuideline, setSelectedScoringGuideline] = useState<Doc<"scoringGuidelines"> | null>(null);
 
@@ -106,19 +108,36 @@ export default function PlaygroundPage() {
   // Create new match mutation
   const enqueueMatch = useAction(api.matches.enqueueMatch);
 
+  // Get task status when we have a current task
+  const currentTask = useQuery(
+    api.tasks.get,
+    currentTaskId ? { taskId: currentTaskId } : "skip"
+  );
+
   const handleCreateMatch = async () => {
     if (!selectedCandidate || !selectedJob || !matchScores || !selectedScoringGuideline) return;
 
+    // Clear any previous task
+    setCurrentTaskId(null);
+
     try {
-      await enqueueMatch({
+      const result = await enqueueMatch({
         candidateId: selectedCandidate._id,
         jobId: selectedJob._id,
         model: selectedModel,
         scoringGuidelineId: selectedScoringGuideline._id,
       });
+      
+      if (result?.taskId) {
+        setCurrentTaskId(result.taskId);
+      }
     } catch (error) {
       console.error("Failed to create match:", error);
     }
+  };
+
+  const handleClearTask = () => {
+    setCurrentTaskId(null);
   };
 
 
@@ -250,7 +269,7 @@ export default function PlaygroundPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {previousMatches.map((match) => (
+                        {previousMatches.map((match: Doc<"matches">) => (
                           <TableRow key={match._id}>
                             <TableCell className="font-medium">{match.model}</TableCell>
                             <TableCell>
@@ -381,13 +400,73 @@ export default function PlaygroundPage() {
 
           </div>
 
+          {/* Task Status Display */}
+          {currentTask && (
+            <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Match Task Status</span>
+                <div className="flex items-center gap-2">
+                  {currentTask.status === "running" && (
+                    <Icons.spinner className="h-4 w-4 animate-spin" />
+                  )}
+                  <Badge variant={
+                    currentTask.status === "succeeded" ? "default" :
+                    currentTask.status === "running" ? "secondary" :
+                    currentTask.status === "failed" ? "destructive" :
+                    "outline"
+                  }>
+                    {currentTask.status}
+                  </Badge>
+                  {(currentTask.status === "succeeded" || currentTask.status === "failed") && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleClearTask}
+                      className="h-6 px-2 text-xs"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+              
+              {currentTask.status === "running" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Progress</span>
+                    <span>{currentTask.progress}%</span>
+                  </div>
+                  <Progress value={currentTask.progress} className="w-full" />
+                  {currentTask.progressMessage && (
+                    <p className="text-xs text-muted-foreground">{currentTask.progressMessage}</p>
+                  )}
+                </div>
+              )}
+              
+              {currentTask.status === "succeeded" && (
+                <p className="text-sm text-green-600">Match completed successfully!</p>
+              )}
+              
+              {currentTask.status === "failed" && currentTask.errorMessage && (
+                <p className="text-sm text-red-600">{currentTask.errorMessage}</p>
+              )}
+            </div>
+          )}
+
           {/* Create Match Button */}
           <Button
             onClick={handleCreateMatch}
-            disabled={!selectedCandidate || !selectedJob || !matchScores || !selectedScoringGuideline}
+            disabled={!selectedCandidate || !selectedJob || !matchScores || !selectedScoringGuideline || (currentTask?.status === "running")}
             className="w-full"
           >
-            Create New Match
+            {currentTask?.status === "running" ? (
+              <>
+                <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                Creating Match...
+              </>
+            ) : (
+              "Create New Match"
+            )}
           </Button>
         </div>
       </div>

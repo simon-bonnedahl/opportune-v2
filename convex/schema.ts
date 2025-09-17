@@ -11,7 +11,7 @@ export default defineSchema({
     role: role,
     imageUrl: v.string(),
     externalId: v.string(),
-  }).index("by_email", ["email"]).index("byExternalId", ["externalId"]),
+  }).index("by_email", ["email"]).index("byExternalId", ["externalId"]).index("by_role", ["role"]).searchIndex("by_name", { searchField: "name" }),
 
   candidates: candidates,
   candidateSourceData: candidateSourceData,

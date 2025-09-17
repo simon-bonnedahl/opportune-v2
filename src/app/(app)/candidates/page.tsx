@@ -16,6 +16,8 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { toast } from "sonner";
 import { Plus, Info } from "lucide-react";
 import { api, Id } from "@/lib/convex";
+import usePresence from "@convex-dev/presence/react";
+import FacePile from "@convex-dev/presence/facepile";
 
 export default function CandidatesPage() {
   const [selectedId, setSelectedId] = useState<Id<"candidates"> | null>(null);
@@ -23,6 +25,7 @@ export default function CandidatesPage() {
   const debouncedSearch = useDebounce(search, 500);
 
   const addCandidate = useAction(api.candidates.add);
+  const presenceState = usePresence(api.presence, "my-chat-room", "abc");
 
   const totalCount = useQuery(api.candidates.getCandidatesCount, { search: debouncedSearch })
   const { results, status } = usePaginatedQuery(
@@ -104,6 +107,7 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
   const profile = useQuery(api.candidates.getProfile, { candidateId: id  }) 
   const sourceData = useQuery(api.candidates.getSourceData, { candidateId: id  }) 
   const candidate = useQuery(api.candidates.get, { candidateId: id  })
+  const presence = usePresence(api.presence, id, "");
   const [open, setOpen] = useState(true);
   const close = () => {
     setOpen(false);
@@ -126,6 +130,8 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
               </Avatar>
               <DialogTitle className="text-base font-semibold leading-none">{candidate?.name}</DialogTitle>
             </div>
+          <FacePile presenceState={presence ?? []} />
+
             <div className="flex items-center gap-3 text-xs">
               {candidate?._creationTime && <div>{new Date(candidate._creationTime).toLocaleDateString()}</div>}
               <div className="flex items-center gap-2"><span className="inline-block size-2 rounded-full bg-emerald-500" />Processed</div>

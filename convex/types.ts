@@ -1,7 +1,9 @@
 import { Infer, v } from "convex/values";
 
 export const role = v.union(
-    v.literal("USER"),
+    v.literal("TA"),
+    v.literal("BM"),
+    v.literal("AM"),
     v.literal("ADMIN"),
   );
   

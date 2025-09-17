@@ -7,6 +7,8 @@ import type { Metadata, Viewport } from 'next';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import './globals.css';
 import './theme.css';
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 
 const META_THEME_COLORS = {
   light: '#ffffff',
@@ -28,7 +30,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang='en' suppressHydrationWarning>
+    <html lang='en' suppressHydrationWarning className={GeistMono.className}>
       <head>
         <script
           dangerouslySetInnerHTML={{

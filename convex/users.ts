@@ -11,6 +11,8 @@ export const current = query({
   },
 });
 
+
+
 export const getById = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
@@ -25,15 +27,21 @@ export const upsertFromClerk = internalMutation({
       name: `${data.first_name} ${data.last_name}`,
       email: data.email_addresses[0].email_address,
       imageUrl: data.image_url,
-      role: "USER" as Role,
+      role: "ADMIN" as Role,
       externalId: data.id,
     };
-
-    const user = await userByExternalId(ctx, data.id);
-    if (user === null) {
+  
+    const userByEmail = await getByEmail(ctx, data.email_addresses[0].email_address);
+    if (!userByEmail) {
       await ctx.db.insert("users", userAttributes);
     } else {
-      await ctx.db.patch(user._id, userAttributes);
+      await ctx.db.patch(userByEmail._id, userAttributes);
+    }
+    const userByExternalId = await getByExternalId(ctx, data.id);
+    if (!userByExternalId) {
+      await ctx.db.insert("users", userAttributes);
+    } else {
+      await ctx.db.patch(userByExternalId._id, userAttributes);
     }
   },
 });
@@ -41,7 +49,7 @@ export const upsertFromClerk = internalMutation({
 export const deleteFromClerk = internalMutation({
   args: { clerkUserId: v.string() },
   async handler(ctx, { clerkUserId }) {
-    const user = await userByExternalId(ctx, clerkUserId);
+    const user = await getByExternalId(ctx, clerkUserId);
 
     if (user !== null) {
       await ctx.db.delete(user._id);
@@ -64,12 +72,19 @@ export async function getCurrentUser(ctx: QueryCtx) {
   if (identity === null) {
     return null;
   }
-  return await userByExternalId(ctx, identity.subject);
+  return await getByExternalId(ctx, identity.subject);
 }
 
-async function userByExternalId(ctx: QueryCtx, externalId: string) {
+async function getByExternalId(ctx: QueryCtx, externalId: string) {
   return await ctx.db
     .query("users")
     .withIndex("byExternalId", (q) => q.eq("externalId", externalId))
+    .unique();
+}
+
+async function getByEmail(ctx: QueryCtx, email: string) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", email))
     .unique();
 }

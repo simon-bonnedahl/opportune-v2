@@ -1,6 +1,7 @@
 import { cosineSimilarity, embedMany } from 'ai';
 import { query, mutation, internalMutation, action } from './_generated/server';
 import { v } from 'convex/values';
+import { Id } from './_generated/dataModel';
 import { enqueueTask } from './tasks';
 
 const models = {
@@ -79,8 +80,9 @@ export const enqueueMatch = action({
     scoringGuidelineId: v.id("scoringGuidelines"),
     model: v.string(),
   },
-  handler: async (ctx, { jobId, candidateId, model, scoringGuidelineId }) => {
-     await enqueueTask(ctx, "match", "user", { jobId, candidateId, model, scoringGuidelineId });
+  handler: async (ctx, { jobId, candidateId, model, scoringGuidelineId }): Promise<{ taskId: Id<"tasks"> }> => {
+     const { taskId } = await enqueueTask(ctx, "match", "user", { jobId, candidateId, model, scoringGuidelineId });
+     return { taskId };
   }
 });
 

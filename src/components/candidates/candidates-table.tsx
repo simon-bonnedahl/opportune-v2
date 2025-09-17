@@ -142,7 +142,7 @@ export function CandidatesTable({
               </TableRow>
             ) : (
               data.map((candidate) => (
-                <TableRow key={candidate._id} className="hover:bg-muted/50 cursor-pointer " onClick={() => onRowClick?.(candidate._id)}>
+                <TableRow key={candidate._id} className=" cursor-pointer " onClick={() => onRowClick?.(candidate._id)}>
                   <TableCell className="w-64">
                     <div className="flex items-center gap-3">
                       <Avatar className="size-10">

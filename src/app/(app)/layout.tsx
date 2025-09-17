@@ -13,6 +13,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  
   return (
     <KBar navItems={navItems}>
       <div className="flex min-h-screen flex-col">

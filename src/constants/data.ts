@@ -27,4 +27,9 @@ export const navItems: MainNavItem[] = [
     url: '/import',
     icon: 'laptop',
   },
+  {
+    title: 'Settings',
+    url: '/settings',
+    icon: 'settings',
+  },
 ]; 
