@@ -294,13 +294,57 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
               )}
             </TabsContent>
             <TabsContent value="assessment" className="overflow-y-auto p-3">
-              {typeof sourceData?.assessment === "string" && sourceData.assessment.trim().length > 0 ? (
-                <div className="space-y-2 text-sm">
-                  <div className="font-medium">Assessment</div>
-                  <p className="whitespace-pre-wrap">{sourceData.assessment}</p>
+              {sourceData?.assessment ? (
+                <div className="space-y-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium text-base">Assessment</div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      {sourceData.assessment.rating && (
+                        <div className="flex items-center gap-1">
+                          <span>Rating:</span>
+                          <div className="flex items-center gap-0.5">
+                            {[...Array(5)].map((_, i) => (
+                              <span
+                                key={i}
+                                className={`text-sm ${
+                                  i < sourceData.assessment.rating
+                                    ? "text-yellow-400"
+                                    : "text-gray-300"
+                                }`}
+                              >
+                                ★
+                              </span>
+                            ))}
+                            <span className="ml-1 text-xs">({sourceData.assessment.rating}/5)</span>
+                          </div>
+                        </div>
+                      )}
+                      {sourceData.assessment.createdAt && (
+                        <div>
+                          {new Date(sourceData.assessment.createdAt).toLocaleDateString('sv-SE', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {sourceData.assessment.comment && sourceData.assessment.comment.trim().length > 0 ? (
+                    <div className="space-y-3">
+                      <div className="bg-muted/30 rounded-lg p-4">
+                        <p className="whitespace-pre-wrap leading-relaxed">{sourceData.assessment.comment}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-neutral-400">No assessment details available</div>
+                  )}
                 </div>
               ) : (
-                <div className="text-sm text-neutral-400">No assessment</div>
+                <div className="text-sm text-neutral-400">No assessment available</div>
               )}
             </TabsContent>
             <TabsContent value="resume" className="overflow-y-auto p-3">
