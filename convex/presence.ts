@@ -22,7 +22,6 @@ export const heartbeat = mutation({
 export const list = query({
   args: { roomToken: v.string() },
   handler: async (ctx, { roomToken }) => {
-    console.log("list", roomToken);
     // Join presence state with user info.
     const presenceList = await presence.list(ctx, roomToken);
     const listWithUserInfo = await Promise.all(

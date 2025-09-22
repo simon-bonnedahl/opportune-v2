@@ -144,59 +144,8 @@ export default function SettingsPage() {
         {/* Main Content Area */}
         <div className="flex-1 space-y-6">
           {activeTab === "general" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>General Settings</CardTitle>
-                <CardDescription>Configure your application preferences</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <Label htmlFor="app-name">Application Name</Label>
-                    <Input id="app-name" placeholder="My Application" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="company">Company</Label>
-                    <Input id="company" placeholder="Company Name" />
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-4">
-                  <h3 className="text-lg font-medium">Notifications</h3>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Email Notifications</Label>
-                        <p className="text-sm text-muted-foreground">Receive notifications via email</p>
-                      </div>
-                      <Switch />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Push Notifications</Label>
-                        <p className="text-sm text-muted-foreground">Receive push notifications</p>
-                      </div>
-                      <Switch />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Marketing Emails</Label>
-                        <p className="text-sm text-muted-foreground">Receive marketing and promotional emails</p>
-                      </div>
-                      <Switch />
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="flex justify-end">
-                  <Button>Save Changes</Button>
-                </div>
-              </CardContent>
-            </Card>
+            <div></div>
+           
           )}
 
           {activeTab === "users" && (

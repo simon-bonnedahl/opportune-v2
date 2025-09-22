@@ -25,7 +25,7 @@ export default function CandidatesPage() {
   const debouncedSearch = useDebounce(search, 500);
 
   const addCandidate = useAction(api.candidates.add);
-  const presenceState = usePresence(api.presence, "my-chat-room", "abc");
+  
 
   const totalCount = useQuery(api.candidates.getCandidatesCount, { search: debouncedSearch })
   const { results, status } = usePaginatedQuery(
@@ -107,7 +107,6 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
   const profile = useQuery(api.candidates.getProfile, { candidateId: id  }) 
   const sourceData = useQuery(api.candidates.getSourceData, { candidateId: id  }) 
   const candidate = useQuery(api.candidates.get, { candidateId: id  })
-  const presence = usePresence(api.presence, id, "");
   const [open, setOpen] = useState(true);
   const close = () => {
     setOpen(false);
@@ -130,7 +129,6 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
               </Avatar>
               <DialogTitle className="text-base font-semibold leading-none">{candidate?.name}</DialogTitle>
             </div>
-          <FacePile presenceState={presence ?? []} />
 
             <div className="flex items-center gap-3 text-xs">
               {candidate?._creationTime && <div>{new Date(candidate._creationTime).toLocaleDateString()}</div>}
