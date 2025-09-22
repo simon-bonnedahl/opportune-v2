@@ -12,9 +12,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CandidatesTable } from "@/components/candidates/candidates-table";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useDebounce } from "@/hooks/use-debounce";
 import { toast } from "sonner";
-import { Plus, Info } from "lucide-react";
+import { Plus, Info, MoreVertical, RefreshCw } from "lucide-react";
 import { api, Id } from "@/lib/convex";
 import usePresence from "@convex-dev/presence/react";
 import FacePile from "@convex-dev/presence/facepile";
@@ -108,9 +109,30 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
   const sourceData = useQuery(api.candidates.getSourceData, { candidateId: id  }) 
   const candidate = useQuery(api.candidates.get, { candidateId: id  })
   const [open, setOpen] = useState(true);
+  const [isReimporting, setIsReimporting] = useState(false);
+  const addCandidate = useAction(api.candidates.add);
+  
   const close = () => {
     setOpen(false);
     onClose();
+  };
+
+  const handleReimport = async () => {
+    if (!candidate?.teamtailorId) {
+      toast.error("No TeamTailor ID found for this candidate");
+      return;
+    }
+
+    setIsReimporting(true);
+    try {
+      await addCandidate({ teamtailorId: candidate.teamtailorId });
+      toast.success("Candidate re-import started successfully!");
+    } catch (error) {
+      console.error("Failed to re-import candidate:", error);
+      toast.error("Failed to start candidate re-import. Please try again.");
+    } finally {
+      setIsReimporting(false);
+    }
   };
 
   const initials = getInitials(candidate?.name);
@@ -130,9 +152,29 @@ function CandidateDialog({ id, onClose }: { id: Id<"candidates">; onClose: () =>
               <DialogTitle className="text-base font-semibold leading-none">{candidate?.name}</DialogTitle>
             </div>
 
-            <div className="flex items-center gap-3 text-xs">
-              {candidate?._creationTime && <div>{new Date(candidate._creationTime).toLocaleDateString()}</div>}
-              <div className="flex items-center gap-2"><span className="inline-block size-2 rounded-full bg-emerald-500" />Processed</div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 text-xs">
+                {candidate?._creationTime && <div>{new Date(candidate._creationTime).toLocaleDateString()}</div>}
+                <div className="flex items-center gap-2"><span className="inline-block size-2 rounded-full bg-emerald-500" />Processed</div>
+              </div>
+              
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem 
+                    onClick={handleReimport}
+                    disabled={isReimporting || !candidate?.teamtailorId}
+                    className="cursor-pointer"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isReimporting ? 'animate-spin' : ''}`} />
+                    {isReimporting ? 'Re-importing...' : 'Re-import'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </DialogHeader>

@@ -167,9 +167,10 @@ export const fetchCandidateAssesment = internalAction({
         if (!apiKey) {
             throw new Error("TEAMTAILOR_API_KEY environment variable is required");
         }
-        const assesmentUrl = `${baseApiUrl}/candidates/${args.teamtailorId}/activities?filter[code]=application_review`;
-   
-        const assesment = await fetch(assesmentUrl,  {
+        // Try to fetch assessment with new namespace first
+        let assesmentUrl = `${baseApiUrl}/candidates/${args.teamtailorId}/activities?filter[code]=application_review`;
+        
+        let assesment = await fetch(assesmentUrl,  {
             method: "GET",
             headers: {
                 Authorization: `Token token=${apiKey}`,
@@ -177,7 +178,22 @@ export const fetchCandidateAssesment = internalAction({
                 "Content-Type": "application/json",
             },
         });
-        const assesmentJson = await assesment.json();
+        let assesmentJson = await assesment.json();
+        
+        // If no assessment found with new namespace, try the old "review" namespace
+        if (!assesmentJson.data || assesmentJson.data.length === 0) {
+            assesmentUrl = `${baseApiUrl}/candidates/${args.teamtailorId}/activities?filter[code]=review`;
+            
+            assesment = await fetch(assesmentUrl,  {
+                method: "GET",
+                headers: {
+                    Authorization: `Token token=${apiKey}`,
+                    "X-Api-Version": "20210218",
+                    "Content-Type": "application/json",
+                },
+            });
+            assesmentJson = await assesment.json();
+        }
         
         if (!assesmentJson.data || assesmentJson.data.length === 0) return {};
         

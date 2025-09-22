@@ -47,6 +47,117 @@ export function validateCandidateProfile(profile: any): void {
 
 
 // Internal
+
+
+
+export const create = internalMutation({
+  args: {
+    teamtailorId: v.string(),
+    name: v.string(),
+    imageUrl: v.optional(v.string()),
+    email: v.optional(v.string()),
+    linkedinUrl: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    rawData: v.any(),
+    processingTask: v.optional(v.id("tasks")),
+    updatedAtTT: v.number(),
+    createdAtTT: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existingCandidate = await ctx.db
+      .query("candidates")
+      .withIndex("by_teamtailor_id", (q) => q.eq("teamtailorId", args.teamtailorId))
+      .first();
+
+    if (existingCandidate) {
+       await ctx.db.patch(existingCandidate._id, {
+        name: args.name,
+        imageUrl: args.imageUrl,
+        email: args.email,
+        linkedinUrl: args.linkedinUrl,
+        phone: args.phone,
+        rawData: args.rawData,
+        processingTask: args.processingTask,
+        updatedAt: Date.now(),
+        updatedAtTT: args.updatedAtTT,
+        createdAtTT: args.createdAtTT,
+       });
+       return existingCandidate._id;
+    }
+
+    return await ctx.db.insert("candidates", {
+      teamtailorId: args.teamtailorId,
+      name: args.name,
+      imageUrl: args.imageUrl,
+      email: args.email,
+      linkedinUrl: args.linkedinUrl,
+      phone: args.phone,
+      rawData: args.rawData,
+      processingTask: args.processingTask,
+      updatedAt: Date.now(),
+      updatedAtTT: args.updatedAtTT,
+      createdAtTT: args.createdAtTT,
+    });
+  },
+});
+
+export const upsertEmbedding = internalMutation({
+  args: { candidateId: v.id("candidates"), vector: v.array(v.number()), section: candidateProfileSections, metadata: v.optional(v.any()) },
+  handler: async (ctx, args) => {
+    //update if exists - query by both candidateId and section to avoid race conditions
+    const existing = await ctx.db.query("candidateEmbeddings").withIndex("by_candidate_id_and_section", (q) => 
+      q.eq("candidateId", args.candidateId).eq("section", args.section)
+    ).first();
+    
+    if (existing) {
+      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata });
+      return existing._id;
+    }
+    return await ctx.db.insert("candidateEmbeddings", { candidateId: args.candidateId, vector: args.vector, section: args.section, metadata: args.metadata });
+  },
+});
+
+
+export const upsertSourceData = internalMutation({
+  args: {
+    candidateId: v.id("candidates"),
+    assessment: v.optional(v.any()),
+    hubertAnswers: v.optional(v.any()),
+    hubertUrl: v.optional(v.string()),
+    resumeSummary: v.optional(v.string()),
+    linkedinSummary: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("candidateSourceData")
+      .withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId))
+      .first();
+    if (existing) {
+      const update = {
+        assessment: args.assessment ?? existing.assessment,
+        hubertAnswers: args.hubertAnswers ?? existing.hubertAnswers,
+        hubertUrl: args.hubertUrl ?? existing.hubertUrl,
+        resumeSummary: args.resumeSummary ?? existing.resumeSummary,
+        linkedinSummary: args.linkedinSummary ?? existing.linkedinSummary,
+        updatedAt: Date.now(),
+      };
+      await ctx.db.patch(existing._id, update);
+      return existing._id;
+    }
+    const doc = {
+      candidateId: args.candidateId,
+      assessment: args.assessment,
+      hubertAnswers: args.hubertAnswers,
+      hubertUrl: args.hubertUrl,
+      resumeSummary: args.resumeSummary,
+      linkedinSummary: args.linkedinSummary,
+      updatedAt: Date.now(),
+    };
+    return await ctx.db.insert("candidateSourceData", doc);
+  },
+});
+
+
 export const upsertProfile = internalMutation({
   args: {
     candidateId: v.id("candidates"),
@@ -106,102 +217,6 @@ export const upsertProfile = internalMutation({
       aspirations: args.aspirations,
       updatedAt: Date.now(),
     });
-  },
-});
-
-
-export const create = internalMutation({
-  args: {
-    teamtailorId: v.string(),
-    name: v.string(),
-    imageUrl: v.optional(v.string()),
-    email: v.optional(v.string()),
-    linkedinUrl: v.optional(v.string()),
-    phone: v.optional(v.string()),
-    rawData: v.any(),
-    processingTask: v.optional(v.id("tasks")),
-    updatedAtTT: v.number(),
-    createdAtTT: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const existingCandidate = await ctx.db
-      .query("candidates")
-      .withIndex("by_teamtailor_id", (q) => q.eq("teamtailorId", args.teamtailorId))
-      .first();
-
-    if (existingCandidate)
-      throw new Error("Candidate already exists with teamtailor id " + args.teamtailorId);
-
-    const candidateId = await ctx.db.insert("candidates", {
-      teamtailorId: args.teamtailorId,
-      name: args.name,
-      imageUrl: args.imageUrl,
-      email: args.email,
-      linkedinUrl: args.linkedinUrl,
-      phone: args.phone,
-      rawData: args.rawData,
-      processingTask: args.processingTask,
-      updatedAt: Date.now(),
-      updatedAtTT: args.updatedAtTT,
-      createdAtTT: args.createdAtTT,
-    });
-    return candidateId;
-  },
-});
-
-export const upsertEmbedding = internalMutation({
-  args: { candidateId: v.id("candidates"), vector: v.array(v.number()), section: candidateProfileSections, metadata: v.optional(v.any()) },
-  handler: async (ctx, args) => {
-    //update if exists - query by both candidateId and section to avoid race conditions
-    const existing = await ctx.db.query("candidateEmbeddings").withIndex("by_candidate_id_and_section", (q) => 
-      q.eq("candidateId", args.candidateId).eq("section", args.section)
-    ).first();
-    
-    if (existing) {
-      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata });
-      return existing._id;
-    }
-    return await ctx.db.insert("candidateEmbeddings", { candidateId: args.candidateId, vector: args.vector, section: args.section, metadata: args.metadata });
-  },
-});
-
-
-export const upsertSourceData = internalMutation({
-  args: {
-    candidateId: v.id("candidates"),
-    assessment: v.optional(v.any()),
-    hubertAnswers: v.optional(v.any()),
-    hubertUrl: v.optional(v.string()),
-    resumeSummary: v.optional(v.string()),
-    linkedinSummary: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("candidateSourceData")
-      .withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId))
-      .first();
-    if (existing) {
-      const update = {
-        assessment: args.assessment ?? existing.assessment,
-        hubertAnswers: args.hubertAnswers ?? existing.hubertAnswers,
-        hubertUrl: args.hubertUrl ?? existing.hubertUrl,
-        resumeSummary: args.resumeSummary ?? existing.resumeSummary,
-        linkedinSummary: args.linkedinSummary ?? existing.linkedinSummary,
-        updatedAt: Date.now(),
-      };
-      await ctx.db.patch(existing._id, update);
-      return existing._id;
-    }
-    const doc = {
-      candidateId: args.candidateId,
-      assessment: args.assessment,
-      hubertAnswers: args.hubertAnswers,
-      hubertUrl: args.hubertUrl,
-      resumeSummary: args.resumeSummary,
-      linkedinSummary: args.linkedinSummary,
-      updatedAt: Date.now(),
-    };
-    return await ctx.db.insert("candidateSourceData", doc);
   },
 });
 
