@@ -1,44 +1,94 @@
-import { cosineSimilarity, embedMany } from 'ai';
-import { query, mutation, internalMutation, action } from './_generated/server';
+import { cosineSimilarity, embedMany, generateObject, generateText, LanguageModel } from 'ai';
+import { query, mutation, internalMutation, action, internalAction } from './_generated/server';
 import { v } from 'convex/values';
 import { Id } from './_generated/dataModel';
 import { enqueueTask } from './tasks';
+import { openai } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google'; 
+import { anthropic } from '@ai-sdk/anthropic';
+import { xai } from '@ai-sdk/xai';
+import { z } from 'zod';
+export const models = [
+  {
+    name: "GPT-5",
+    id: "gpt-5",
+    model: openai('gpt-5'),
+    provider: "OpenAI",
+  },
+  {
+    name: "GPT-5 Mini",
+    id: "gpt-5-mini",
+    model: openai('gpt-5-mini'),
+    provider: "OpenAI",
+  },
+  {
+    name: "GPT-5 Nano",
+    id: "gpt-5-nano",
+    model: openai('gpt-5-nano'),
+    provider: "OpenAI",
+  },
+  {
+    name: "GPT-4o",
+    id: "gpt-4o",
+    model: openai('gpt-4o'),
+    provider: "OpenAI",
+  },
+  {
+    name: "Gemini 2.5 Pro",
+    id: "gemini-2.5-pro",
+    model: google('gemini-2.5-pro'),
+    provider: "Google",
+  },
+  {
+    name: "Gemini 2.5 Flash",
+    id: "gemini-2.5-flash",
+    model: google('gemini-2.5-flash'),
+    provider: "Google",
+  },
+  {
+    name: "Gemini 2.5 Flash-Lite",
+    id: "gemini-2.5-flash-lite",
+    model: google('gemini-2.5-flash-lite'),
+    provider: "Google",
+  },
 
-const models = {
-  openai: {
-    gpt5: {
-      modelId: "gpt-5",
-      config: {
-        temperature: 0.0,
-        maxTokens: 1000,
-      },
-    },
-    gpt4o: {
-      modelId: "gpt-4o",
-      config: {
-        temperature: 0.0,
-        maxTokens: 1000,
-      },
-    }
+  {
+    name: "Claude 4 Sonnet",
+    id: "claude-sonnet-4-20250514",
+    model: anthropic('claude-sonnet-4-20250514'),
+    provider: "Anthropic",
   },
-  google: {
-    gemini: {
-      modelId: "gemini-2.0-flash",
-      config: {
-        temperature: 0.0,
-        maxTokens: 1000,
-      },
-    }
+  {
+    name: "Claude 4 Opus",
+    id: "claude-opus-4-20250514",
+    model: anthropic('claude-opus-4-20250514'),
+    provider: "Anthropic",
   },
-  anthropic: {
-    claude4sonnet: {
-      modelId: "claude-4-sonnet-20240229",
-      config: {
-        temperature: 0.0,
-        maxTokens: 1000,
-      },
-    }
+  {
+    name: "Grok 4",
+    id: "grok-4",
+    model: xai('grok-4'),
+    provider: "xAI",
+  },
+  {
+    name: "Grok 4 Fast Reasoning",
+    id: "grok-4-fast-reasoning",
+    model: xai('grok-4-fast-reasoning'),
+    provider: "xAI",
+  },
+  {
+    name: "Grok 3",
+    id: "grok-3",
+    model: xai('grok-3'),
+    provider: "xAI",
   }
+
+]
+const getModel = (modelId: string) => {
+  return models.find((m) => m.id === modelId)?.model;
+}
+const getProvider = (modelId: string) => {
+  return models.find((m) => m.id === modelId)?.provider;
 }
 //Helpers
 const getEmbeddingSection = (embeddings: any[], section: string) => {
@@ -85,7 +135,6 @@ export const enqueueMatch = action({
      return { taskId };
   }
 });
-
 
 
 export const getMatchScores = query({
@@ -271,7 +320,7 @@ export const getPreviousMatches = query({
     },
     handler: async (ctx, { jobId, candidateId }) => {
         const matches = await ctx.db.query("matches")
-            .withIndex("by_candidate_job_model", (q) => 
+            .withIndex("by_candidate_and_job", (q) => 
                 q.eq("candidateId", candidateId).eq("jobId", jobId)
             )
             .order("desc")
@@ -281,3 +330,61 @@ export const getPreviousMatches = query({
     }
 });
 
+
+const MATCH_PROMPT = `
+You are an expert candidate–job matching engine.
+Given a structured Candidate Profile and Job Profile, compute a suitability score between 0.0 and 1.0.
+All text should be in Swedish.
+You will be given a set of scoring guidelines to follow below.
+
+Scoring Guidelines:
+
+{{scoringGuidelines}}
+
+Candidate Profile:
+
+{{candidateProfile}}
+
+Job Profile:
+
+{{jobProfile}}
+
+
+The match should be a JSON object with the following fields:
+- score: a score between 0.0 and 1.0
+- explanation: a concise explanation of the match
+- confidence: a score between 1-10 indicating how strong the input data is for building a good match (10 = excellent data quality, 1 = very poor data quality)
+
+The response should be in the following format:
+{
+  "score": "number",
+  "explanation": "string",
+  "confidence": "number"
+}
+
+Return only the JSON object.
+Do not include any other text or comments.
+`;
+
+
+export const match = internalAction({
+  args: { candidateProfile: v.any(), jobProfile: v.any(), scoringGuidelines: v.string(), model: v.string() },
+  handler: async (ctx, args) => {
+    const { candidateProfile, jobProfile, scoringGuidelines } = args;
+    const model = getModel(args.model) ?? openai('gpt-5');
+    const provider = getProvider(args.model) ?? "OpenAI";
+    const prompt = MATCH_PROMPT.replace("{{scoringGuidelines}}", scoringGuidelines).replace("{{candidateProfile}}", JSON.stringify(candidateProfile)).replace("{{jobProfile}}", JSON.stringify(jobProfile));
+    const response = await generateObject({
+      model,
+      schema: z.object({
+        score: z.number(),
+        explanation: z.string(),
+        confidence: z.number(),
+      }),
+      prompt,
+    });
+
+    return { metadata: { modelId: model.modelId, provider, totalUsage: response.usage, prompt, confidence: response.object.confidence }, raw: response.object, response: response.object };
+  
+  }
+});

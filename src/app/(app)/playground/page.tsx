@@ -24,6 +24,8 @@ import { CandidateSearch } from "@/components/playground/candidate-search";
 import { JobSearch } from "@/components/playground/job-search";
 import { Input } from "@/components/ui/input";
 import { Icons } from "@/components/icons";
+import { models } from "../../../../convex/matches";
+import { timeAgo } from "@/lib/format";
 
 export default function PlaygroundPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<Doc<"candidates"> | null>(null);
@@ -35,29 +37,27 @@ export default function PlaygroundPage() {
 
   const [selectedScoringGuideline, setSelectedScoringGuideline] = useState<Doc<"scoringGuidelines"> | null>(null);
 
-
-  // Available models grouped by company
-  const availableModels = [
-    {
-      company: "OpenAI",
-      models: [
-        { value: "gpt-5", label: "GPT-5" },
-        { value: "gpt-4o", label: "GPT-4o" },
-      ]
-    },
-    {
-      company: "Google",
-      models: [
-        { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
-      ]
-    },
-    {
-      company: "Anthropic",
-      models: [
-        { value: "claude-4-sonnet-20240229", label: "Claude 4 Sonnet" },
-      ]
-    },
-  ];
+  // Convert models array to availableModels structure
+  const availableModels = models.reduce((acc, model) => {
+    const existingGroup = acc.find(group => group.company === model.provider);
+    
+    if (existingGroup) {
+      existingGroup.models.push({
+        value: model.id,
+        label: model.name
+      });
+    } else {
+      acc.push({
+        company: model.provider,
+        models: [{
+          value: model.id,
+          label: model.name
+        }]
+      });
+    }
+    
+    return acc;
+  }, [] as Array<{ company: string; models: Array<{ value: string; label: string }> }>);
 
   // Get current model label
   const getCurrentModelLabel = () => {
@@ -264,12 +264,13 @@ export default function PlaygroundPage() {
                         <TableRow>
                           <TableHead>Model</TableHead>
                           <TableHead>Score</TableHead>
+                          <TableHead>Guidelines</TableHead>
                           <TableHead>Date</TableHead>
                           <TableHead>Explanation</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {previousMatches.map((match: Doc<"matches">) => (
+                        {previousMatches.map((match) => (
                           <TableRow key={match._id}>
                             <TableCell className="font-medium">{match.model}</TableCell>
                             <TableCell>
@@ -283,8 +284,11 @@ export default function PlaygroundPage() {
                                 </div>
                               </div>
                             </TableCell>
+                            <TableCell className="font-medium">
+                              {scoringGuidelines?.find((scoringGuideline) => scoringGuideline._id === match.scoringGuidelineId)?.name || "No guideline"}
+                            </TableCell>
                             <TableCell>
-                              {new Date(match.updatedAt).toLocaleDateString()}
+                              {timeAgo(match._creationTime)}
                             </TableCell>
                             <TableCell className="max-w-xs">
                               <div className="break-words whitespace-pre-wrap">
@@ -438,7 +442,7 @@ export default function PlaygroundPage() {
                   </div>
                   <Progress value={currentTask.progress} className="w-full" />
                   {currentTask.progressMessages.length > 0 && (
-                    <p className="text-xs text-muted-foreground">{currentTask.progressMessages[-1].message}</p>
+                    <p className="text-xs text-muted-foreground">{currentTask.progressMessages[currentTask.progressMessages.length - 1].message}</p>
                   )}
                 </div>
               )}

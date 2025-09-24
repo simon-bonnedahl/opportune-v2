@@ -2,20 +2,64 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 
 
-export async function getHubertOpenSummaryUrl(teamtailorId: string) {
+export async function getHubertOpenSummaryUrl(teamtailorId: string, maxRetries: number = 3) {
     const partnerResultsUrl = `${process.env.TEAMTAILOR_BASE_URL}/candidates/${teamtailorId}/partner-results`;
-    const response = await fetch(partnerResultsUrl, {
-        method: "GET",
-        headers: {
-            Authorization: `Token token=${process.env.TEAMTAILOR_API_KEY}`,
-            "X-Api-Version": "20210218",
-            "Content-Type": "application/json",
-        },
-    });
-    if (!response.ok) {
-        throw new Error(`Teamtailor API error: ${response.status} ${response.statusText}`);
+    
+    let retries = 0;
+    let response;
+    
+    while (retries < maxRetries) {
+        try {
+            response = await fetch(partnerResultsUrl, {
+                method: "GET",
+                headers: {
+                    Authorization: `Token token=${process.env.TEAMTAILOR_API_KEY}`,
+                    "X-Api-Version": "20210218",
+                    "Content-Type": "application/json",
+                },
+                // Add timeout to prevent hanging
+                signal: AbortSignal.timeout(30000), // 30 second timeout
+            });
+            
+            if (response.status === 429) {
+                // Rate limited - wait and retry
+                retries++;
+                if (retries >= maxRetries) {
+                    throw new Error(`Teamtailor API rate limit exceeded after ${maxRetries} attempts`);
+                }
+                
+                // Exponential backoff: wait 2s, 4s, 8s
+                const delay = Math.pow(2, retries) * 1000;
+                console.log(`Rate limited, waiting ${delay}ms before retry ${retries}/${maxRetries}`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+            
+            if (!response.ok) {
+                throw new Error(`Teamtailor API error: ${response.status} ${response.statusText}`);
+            }
+            
+            // Success - break out of retry loop
+            break;
+            
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error('Request timeout');
+            }
+            
+            retries++;
+            if (retries >= maxRetries) {
+                throw error;
+            }
+            
+            // Wait before retry for other errors
+            const delay = Math.pow(2, retries) * 1000;
+            console.log(`Request failed, waiting ${delay}ms before retry ${retries}/${maxRetries}:`, error);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
-    const responseJson = await response.json();
+    
+    const responseJson = await response!.json();
     if (!responseJson.data) {
         throw new Error("No partner results found");
     }

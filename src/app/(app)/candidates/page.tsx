@@ -18,8 +18,6 @@ import { useProgressToast } from "@/hooks/use-progress-toast";
 import { toast } from "sonner";
 import { Plus, Info, MoreVertical, RefreshCw, UserCog, Brain, Link } from "lucide-react";
 import { api, Id } from "@/lib/convex";
-import usePresence from "@convex-dev/presence/react";
-import FacePile from "@convex-dev/presence/facepile";
 import Image from "next/image";
 
 export default function CandidatesPage() {
@@ -469,8 +467,8 @@ function CandidateDialog({ id, onClose, showProgressToast }: { id: Id<"candidate
                           <Image
                             src="/images/teamtailor_logo.png"
                             alt="Teamtailor"
-                            width={24}
-                            height={24}
+                            width={100}
+                            height={100}
                             className="size-6 rounded-full"
                           />
                         </Button>
@@ -507,8 +505,8 @@ function CandidateDialog({ id, onClose, showProgressToast }: { id: Id<"candidate
                             <Image
                               src="/images/hubert_logo.png"
                               alt="Hubert"
-                              width={24}
-                              height={24}
+                              width={100}
+                              height={100}
                               className="size-6 rounded-full"
                             />
                           </Button>

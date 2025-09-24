@@ -282,7 +282,7 @@ export const getJobsByUpdatedTT = internalAction({
     },
     handler: async (ctx, args) => {
         try {
-            return await fetchAllPagesFromTeamtailor(`${baseApiUrl}/jobs?filter[updated-at][from]=${new Date(args.updatedAtTT).toISOString()}`) as TeamtailorJob[];
+            return await fetchAllPagesFromTeamtailor(`${baseApiUrl}/jobs?filter[status]=all&filter[updated-at][from]=${new Date(args.updatedAtTT).toISOString()}`) as TeamtailorJob[];
         } catch (error) {
             throw new Error(error instanceof Error ? error.message : "Unknown error occurred");
         }

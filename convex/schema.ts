@@ -77,6 +77,7 @@ export default defineSchema({
     .index("by_workpool_type_and_status", ["workpool", "type", "status"])
     .index("by_type_and_status", ["type", "status"])
     .index("by_runAt", ["runAt"])
+    .index("by_triggeredById", ["triggeredById"])
     .index("by_workpool_status_queuedAt", ["workpool", "status", "queuedAt"]) 
     .index("by_workpool_status_stoppedAt", ["workpool", "status", "stoppedAt"]),
 

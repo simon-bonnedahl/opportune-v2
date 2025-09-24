@@ -169,8 +169,10 @@ export const task_tt_sync = internalAction({
       progress = Math.round(i * (50 / candidates.length));
       await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress });
 
-
-      
+      // Add a small delay between candidates to avoid rate limiting
+      if (i < candidates.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+      }
   }
   } catch (error) {
     await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when syncing candidates" });
@@ -563,7 +565,7 @@ export const task_match = internalAction({
     await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 35, progressMessage: "Queried scoring guidelines" });
 
     //Step 3: match
-    const { response, metadata } = await ctx.runAction(internal.openai.match, { candidateProfile: candidateProfile, jobProfile: jobProfile, scoringGuidelines: scoringGuidelines.text });
+    const { response, metadata } = await ctx.runAction(internal.matches.match, { candidateProfile: candidateProfile, jobProfile: jobProfile, scoringGuidelines: scoringGuidelines.text, model });
 
     await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Fetching match", metadata: metadata });
 

@@ -97,8 +97,8 @@ export function CandidatesTable({
           <Image
             src="/images/teamtailor_logo.png"
             alt="Teamtailor"
-            width={16}
-            height={16}
+            width={100}
+            height={100}
             className="size-5 rounded-full"
           />
         )}
@@ -106,8 +106,8 @@ export function CandidatesTable({
           <Image
             src="/images/hubert_logo.png"
             alt="Hubert"
-            width={16}
-            height={16}
+            width={100}
+            height={100}
             className="size-5 rounded-full "
           />
         )}

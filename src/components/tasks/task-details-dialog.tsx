@@ -31,6 +31,7 @@ import {
 } from "@/components/ai-elements/context";
 import { TriggeredByDisplay } from "@/components/tasks/triggered-by-display";
 import Image from "next/image";
+import { getProviderLogo } from "@/lib/provider-logos";
 
 
 const STATUS_COLORS = {
@@ -146,12 +147,13 @@ export function TaskDetailsDialog({ task, onClose, onTaskClick }: TaskDetailsDia
 								>
 									<ContextTrigger>
 										<Image 
-											src="/images/openai_logo.webp" 
-											alt="OpenAI" 
+											src={getProviderLogo(task.metadata?.provider || "OpenAI").src}
+											alt={getProviderLogo(task.metadata?.provider || "OpenAI").alt}
 											width={32} 
 											height={32} 
 											className="cursor-pointer hover:opacity-80 transition-opacity"
 										/>
+										
 									</ContextTrigger>
 									<ContextContent>
 										<ContextContentHeader />
