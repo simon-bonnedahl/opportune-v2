@@ -439,10 +439,10 @@ function CandidateDialog({ id, onClose, showProgressToast }: { id: Id<"candidate
                               {[...Array(5)].map((_, i) => (
                                 <span
                                   key={i}
-                                  className={`text-lg ${i < sourceData.assessment.rating
-                                      ? "text-yellow-400"
-                                      : "text-gray-300"
-                                    }`}
+                                  className={`text-lg ${i < (sourceData.assessment?.rating ?? 0)
+                                    ? "text-yellow-400"
+                                    : "text-gray-300"
+                                  }`}
                                 >
                                   ★
                                 </span>
