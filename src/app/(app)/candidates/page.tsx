@@ -356,7 +356,7 @@ function CandidateDialog({ id, onClose, showProgressToast }: { id: Id<"candidate
                     <div className="space-y-2">
                       <div className="font-medium">Technical Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {profile.technicalSkills.map((skill: any, i: number) => (
+                        {profile.technicalSkills.map((skill, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
                             {skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}
                           </Badge>
@@ -369,7 +369,7 @@ function CandidateDialog({ id, onClose, showProgressToast }: { id: Id<"candidate
                     <div className="space-y-2">
                       <div className="font-medium">Soft Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {profile.softSkills.map((skill: any, i: number) => (
+                        {profile.softSkills.map((skill, i: number) => (
                           <Badge key={i} variant="outline" className="px-2 py-1">
                             {skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}
                           </Badge>
