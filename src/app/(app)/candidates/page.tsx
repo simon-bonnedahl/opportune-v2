@@ -433,7 +433,7 @@ function CandidateDialog({ id, onClose, showProgressToast }: { id: Id<"candidate
                     <div className="flex items-center justify-between">
                       <div className="font-medium text-base">Teamtailor Assessment</div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        {sourceData.assessment.rating && (
+                        {sourceData.assessment?.rating && (
                           <div className="flex items-center gap-1">
                             <div className="flex items-center gap-0.5">
                               {[...Array(5)].map((_, i) => (
