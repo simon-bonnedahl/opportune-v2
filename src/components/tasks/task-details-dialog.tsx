@@ -151,7 +151,7 @@ export function TaskDetailsDialog({ task, onClose, onTaskClick }: TaskDetailsDia
 											alt={getProviderLogo(task.metadata?.provider || "OpenAI").alt}
 											width={32} 
 											height={32} 
-											className="cursor-pointer hover:opacity-80 transition-opacity"
+											className="cursor-pointer hover:opacity-80 transition-opacity rounded-full"
 										/>
 										
 									</ContextTrigger>

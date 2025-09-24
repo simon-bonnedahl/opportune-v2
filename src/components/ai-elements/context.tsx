@@ -106,7 +106,7 @@ export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
   const usedPercent = usedTokens / maxTokens;
   const renderedPercent = new Intl.NumberFormat("en-US", {
     style: "percent",
-    maximumFractionDigits: 1,
+    maximumFractionDigits: 4,
   }).format(usedPercent);
 
   return (
@@ -146,7 +146,7 @@ export const ContextContentHeader = ({
   const usedPercent = usedTokens / maxTokens;
   const displayPct = new Intl.NumberFormat("en-US", {
     style: "percent",
-    maximumFractionDigits: 1,
+    maximumFractionDigits: 4,
   }).format(usedPercent);
   const used = new Intl.NumberFormat("en-US", {
     notation: "compact",
@@ -209,6 +209,7 @@ export const ContextContentFooter = ({
   const totalCost = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    maximumFractionDigits: 4,
   }).format(costUSD ?? 0);
 
   return (
@@ -256,6 +257,7 @@ export const ContextInputUsage = ({
   const inputCostText = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    maximumFractionDigits: 4,
   }).format(inputCost ?? 0);
 
   return (
@@ -296,6 +298,7 @@ export const ContextOutputUsage = ({
   const outputCostText = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    maximumFractionDigits: 4,
   }).format(outputCost ?? 0);
 
   return (
@@ -336,6 +339,7 @@ export const ContextReasoningUsage = ({
   const reasoningCostText = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    maximumFractionDigits: 4,
   }).format(reasoningCost ?? 0);
 
   return (
@@ -376,6 +380,7 @@ export const ContextCacheUsage = ({
   const cacheCostText = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
+    maximumFractionDigits: 4,
   }).format(cacheCost ?? 0);
 
   return (

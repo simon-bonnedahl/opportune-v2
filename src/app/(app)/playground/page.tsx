@@ -26,6 +26,20 @@ import { Input } from "@/components/ui/input";
 import { Icons } from "@/components/icons";
 import { models } from "../../../../convex/matches";
 import { timeAgo } from "@/lib/format";
+import { 
+  Context, 
+  ContextTrigger, 
+  ContextContent, 
+  ContextContentHeader,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextInputUsage,
+  ContextOutputUsage,
+  ContextReasoningUsage,
+  ContextCacheUsage
+} from "@/components/ai-elements/context";
+import { getProviderLogo } from "@/lib/provider-logos";
+import Image from "next/image";
 
 export default function PlaygroundPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<Doc<"candidates"> | null>(null);
@@ -272,7 +286,45 @@ export default function PlaygroundPage() {
                       <TableBody>
                         {previousMatches.map((match) => (
                           <TableRow key={match._id}>
-                            <TableCell className="font-medium">{match.model}</TableCell>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                {match.metadata?.totalUsage ? (
+                                  <Context
+                                    usedTokens={match.metadata.totalUsage.totalTokens}
+                                    maxTokens={match.metadata.model === 'gpt-5' ? 200000 : 128000}
+                                    usage={match.metadata.totalUsage}	
+                                    modelId={match.metadata.modelId}
+                                  >
+                                    <ContextTrigger>
+                                      <Image 
+                                        src={getProviderLogo(match.metadata?.provider || "OpenAI").src}
+                                        alt={getProviderLogo(match.metadata?.provider || "OpenAI").alt}
+                                        width={20} 
+                                        height={20} 
+                                        className="cursor-pointer hover:opacity-80 transition-opacity rounded-full"
+                                      />
+                                    </ContextTrigger>
+                                    <ContextContent>
+                                      <ContextContentHeader />
+                                      <ContextContentBody>
+                                        <div className="space-y-2">
+                                          <ContextInputUsage />
+                                          <ContextOutputUsage />
+                                          <ContextReasoningUsage />
+                                          <ContextCacheUsage />
+                                        </div>
+                                      </ContextContentBody>
+                                      <ContextContentFooter />
+                                    </ContextContent>
+                                  </Context>
+                                ) : (
+                                  <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center">
+                                    <span className="text-xs text-muted-foreground">?</span>
+                                  </div>
+                                )}
+                                <span>{match.model}</span>
+                              </div>
+                            </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <Progress 

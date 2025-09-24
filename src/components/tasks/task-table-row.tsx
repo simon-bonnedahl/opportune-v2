@@ -7,6 +7,7 @@ import { Doc, Id } from "@/lib/convex";
 import { Context, ContextContentFooter, ContextCacheUsage, ContextInputUsage, ContextContent, ContextContentBody, ContextContentHeader, ContextTrigger, ContextOutputUsage, ContextReasoningUsage } from "@/components/ai-elements/context";
 import { TriggeredByDisplay } from "./triggered-by-display";
 import Image from "next/image";
+import { getProviderLogo } from "@/lib/provider-logos";
 
 interface TaskTableRowProps {
   task: Doc<"tasks">;
@@ -73,13 +74,13 @@ export function TaskTableRow({ task, onTaskClick, openTaskDialog }: TaskTableRow
               modelId={task.metadata.modelId}
             >
               <ContextTrigger>
-                <Image
-                  src="/images/openai_logo.webp"
-                  alt="OpenAI"
-                  width={24}
-                  height={24}
-                  className="cursor-pointer hover:opacity-80 transition-opacity"
-                />
+              <Image 
+											src={getProviderLogo(task.metadata?.provider || "OpenAI").src}
+											alt={getProviderLogo(task.metadata?.provider || "OpenAI").alt}
+											width={24} 
+											height={24} 
+											className="cursor-pointer hover:opacity-80 transition-opacity rounded-full"
+										/>
               </ContextTrigger>
               <ContextContent>
                 <ContextContentHeader />
