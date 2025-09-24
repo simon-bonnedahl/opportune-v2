@@ -34,8 +34,6 @@ export function useProgressToast() {
         taskId={taskId} 
         title={title} 
         toastId={taskKey}
-        onView={handleView}
-        onDismiss={handleDismiss}
       />,
       {
         duration: Infinity, // Keep it open until manually dismissed
@@ -52,7 +50,7 @@ export function useProgressToast() {
       }
     );
 
-    toastIds.current.set(taskKey, toastId);
+    toastIds.current.set(taskKey, String(toastId));
   }, [router]);
 
   const dismissProgressToast = useCallback((taskId: Id<"tasks">) => {
