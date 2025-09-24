@@ -3,24 +3,15 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
+import { api } from "@/lib/convex";
+import { FunctionReturnType } from "convex/server";
 
-// Define the cron type based on typical Convex crons structure
-interface Cron {
-  _id: string;
-  name?: string;
-  schedule?: {
-    kind: string;
-    ms?: number;
-    cron?: string;
-  };
-  state?: string;
-  nextRun?: number;
-  lastRun?: number;
-  createdAt?: number;
-}
+// Extract the return type from the query
+type CronsWithTasks = FunctionReturnType<typeof api._crons.listWithTasks>;
+type Cron = CronsWithTasks[0]; // Get the type of a single cron item
 
 interface CronsTableProps {
-  crons: Cron[];
+  crons: CronsWithTasks;
 }
 
 function SkeletonRow() {
@@ -61,14 +52,14 @@ export function CronsTable({ crons }: CronsTableProps) {
       return `Every ${seconds} second${seconds > 1 ? 's' : ''}`;
     }
     
-    if (schedule.kind === "cron" && schedule.cron) {
-      return schedule.cron;
+    if (schedule.kind === "cron" && schedule.cronspec) {
+      return schedule.cronspec;
     }
     
     return schedule.kind;
   };
 
-  const formatDate = (timestamp?: number) => {
+  const formatDate = (timestamp?: number | null) => {
     if (!timestamp) return "-";
     return format(new Date(timestamp), "MMM dd, yyyy HH:mm");
   };
@@ -86,6 +77,32 @@ export function CronsTable({ crons }: CronsTableProps) {
     }
   };
 
+  const getLastRun = (cron: Cron) => {
+    if (!cron.tasks || cron.tasks.length === 0) return null;
+    
+    // Find the most recent task by creation time
+    const latestTask = cron.tasks.reduce((latest, task) => 
+      task._creationTime > latest._creationTime ? task : latest
+    );
+    
+    return latestTask._creationTime;
+  };
+
+  const getNextRun = (cron: Cron) => {
+    if (!cron.schedule || cron.schedule.kind !== "interval" || !cron.schedule.ms) {
+      return null;
+    }
+    
+    const lastRun = getLastRun(cron);
+    if (!lastRun) {
+      // If no previous runs, next run is now + interval
+      return Date.now() + cron.schedule.ms;
+    }
+    
+    // Next run is last run + interval
+    return lastRun + cron.schedule.ms;
+  };
+
   return (
     <div className="flex flex-col h-[75vh]">
       <div className="flex-shrink-0">
@@ -93,8 +110,6 @@ export function CronsTable({ crons }: CronsTableProps) {
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-64">Name</TableHead>
-              <TableHead className="w-64">Schedule</TableHead>
-              <TableHead className="w-32">State</TableHead>
               <TableHead className="w-32">Next Run</TableHead>
               <TableHead className="w-32">Last Run</TableHead>
             </TableRow>
@@ -113,24 +128,17 @@ export function CronsTable({ crons }: CronsTableProps) {
               </TableRow>
             ) : (
               crons.map((cron) => (
-                <TableRow key={cron._id} className="hover:bg-muted/50">
+                <TableRow key={cron.id} className="hover:bg-muted/50">
                   <TableCell className="font-mono text-xs truncate max-w-[280px]">
-                    {cron.name || cron._id}
+                    {cron.name || cron.id}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {formatSchedule(cron.schedule)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block size-2.5 rounded-full ${getStateColor(cron.state)}`} />
-                      <span className="capitalize">{cron.state || "unknown"}</span>
-                    </div>
+              
+               
+                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    {formatDate(getNextRun(cron))}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {formatDate(cron.nextRun)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                    {formatDate(cron.lastRun)}
+                    {formatDate(getLastRun(cron))}
                   </TableCell>
                 </TableRow>
               ))

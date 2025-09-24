@@ -2,13 +2,17 @@
 
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import { FunctionReturnType } from "convex/server";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CronsTable } from "@/components/crons/crons-table";
 import { CreateCronDialog } from "@/components/crons/create-cron-dialog";
 
+// Extract the return type from the query
+
+
 export default function CronsPage() {
-  const crons = useQuery(api._crons.list);
+  const crons = useQuery(api._crons.listWithTasks);
 
   return (
     <div className="w-full px-4 py-4">

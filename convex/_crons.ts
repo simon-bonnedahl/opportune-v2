@@ -43,7 +43,7 @@ export const listWithTasks = query({
       const c = await crons.list(ctx);
       return Promise.all(c.map(async (cron) => ({
         ...cron,
-        tasks: await ctx.db.query("tasks").filter((q) => q.eq(q.field("triggeredById"), cron.name)).collect(),
+        tasks: await ctx.db.query("tasks").filter((q) => q.eq(q.field("triggeredById"), cron.id || cron.name)).collect(),
       })));
 
     },

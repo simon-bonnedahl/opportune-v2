@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { TaskType } from "../../../convex/types";
 
 interface CreateCronDialogProps {
   onCronCreated?: () => void;
@@ -47,12 +48,12 @@ const RELATIVE_PERIODS = [
 export function CreateCronDialog({ onCronCreated }: CreateCronDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [taskType, setTaskType] = useState<string>("");
+  const [taskType, setTaskType] = useState<TaskType>("sync");
   const [scheduleMs, setScheduleMs] = useState<number>(0);
   const [relativePeriod, setRelativePeriod] = useState<number>(0);
   const [isCreating, setIsCreating] = useState(false);
 
-  const createTaskCron = useMutation(api._crons.createTaskCron);
+  const createTaskCron = useMutation(api._crons.create);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,20 +70,17 @@ export function CreateCronDialog({ onCronCreated }: CreateCronDialogProps) {
       
       await createTaskCron({
         name: name.trim(),
-        schedule: {
-          kind: "interval",
-          ms: scheduleMs,
-        },
         taskType,
-        taskArgs: {
-          updatedAtTT,
+        args: {
+          timeAgo: relativePeriod,
         },
+        scheduleMs,
       });
 
       toast.success("Cron created successfully!");
       setOpen(false);
       setName("");
-      setTaskType("");
+      setTaskType("sync");
       setScheduleMs(0);
       setRelativePeriod(0);
       onCronCreated?.();
@@ -120,7 +118,7 @@ export function CreateCronDialog({ onCronCreated }: CreateCronDialogProps) {
 
           <div className="space-y-2">
             <Label htmlFor="taskType">Task Type</Label>
-            <Select value={taskType} onValueChange={setTaskType} required>
+            <Select value={taskType} onValueChange={(value) => setTaskType(value as TaskType)} required>
               <SelectTrigger>
                 <SelectValue placeholder="Select a task type" />
               </SelectTrigger>
@@ -137,7 +135,7 @@ export function CreateCronDialog({ onCronCreated }: CreateCronDialogProps) {
             </Select>
           </div>
 
-          {taskType === "teamtailor_sync" && (
+          {taskType === "sync" && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm">Teamtailor Sync Configuration</CardTitle>

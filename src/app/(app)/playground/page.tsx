@@ -437,8 +437,8 @@ export default function PlaygroundPage() {
                     <span>{currentTask.progress}%</span>
                   </div>
                   <Progress value={currentTask.progress} className="w-full" />
-                  {currentTask.progressMessage && (
-                    <p className="text-xs text-muted-foreground">{currentTask.progressMessage}</p>
+                  {currentTask.progressMessages.length > 0 && (
+                    <p className="text-xs text-muted-foreground">{currentTask.progressMessages[-1].message}</p>
                   )}
                 </div>
               )}
