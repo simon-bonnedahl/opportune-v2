@@ -55,7 +55,7 @@ export function JobsTable({
         case "failed": return "bg-red-500";
         case "canceled": return "bg-gray-500";
         case "none": return "bg-gray-300";
-        default: return "bg-gray-400";
+        default: return "bg-emerald-500";
       }
     };
 
@@ -67,14 +67,14 @@ export function JobsTable({
         case "failed": return "Failed";
         case "canceled": return "Canceled";
         case "none": return "None";
-        default: return "Unknown";
+        default: return "Completed";
       }
     };
 
     return (
       <div className="inline-flex items-center gap-2 text-xs">
-        <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(processingStatus?.status ?? "unknown")}`} />
-        <span>{getStatusLabel(processingStatus?.status ?? "unknown")}</span>
+        <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(processingStatus?.status ?? "completed")}`} />
+        <span>{getStatusLabel(processingStatus?.status ?? "completed")}</span>
         {processingStatus?.status === "running" && processingStatus?.progress > 0 && (
           <span className="text-muted-foreground">({processingStatus?.progress}%)</span>
         )}
