@@ -23,6 +23,11 @@ export const navItems: MainNavItem[] = [
     icon: 'laptop',
   },
   {
+    title: 'Crons',
+    url: '/crons',
+    icon: 'laptop',
+  },
+  {
     title: 'Import',
     url: '/import',
     icon: 'laptop',

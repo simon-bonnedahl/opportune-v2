@@ -99,15 +99,93 @@ export const getMatchScores = query({
         if (jobEmbeddings.length === 0 || candidateEmbeddings.length === 0) {
             return { averageScore: 0, summaryScore: 0, technicalSkillsScore: 0, softSkillsScore: 0, educationScore: 0, workTasksScore: 0, preferencesScore: 0, aspirationsScore: 0 };
         }
-        const summaryScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "summary").vector, getEmbeddingSection(candidateEmbeddings, "summary").vector);
-        const technicalSkillsScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "technical_skills").vector, getEmbeddingSection(candidateEmbeddings, "technical_skills").vector);
-        const softSkillsScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "soft_skills").vector, getEmbeddingSection(candidateEmbeddings, "soft_skills").vector);
-        const educationScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "education").vector, getEmbeddingSection(candidateEmbeddings, "education").vector);
-        const workTasksScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "work_tasks").vector, getEmbeddingSection(candidateEmbeddings, "work_experience").vector);
-        const preferencesScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "preferences").vector, getEmbeddingSection(candidateEmbeddings, "preferences").vector);
-        const aspirationsScore = cosineSimilarity(getEmbeddingSection(jobEmbeddings, "aspirations").vector, getEmbeddingSection(candidateEmbeddings, "aspirations").vector);
-        const averageScore = (summaryScore + technicalSkillsScore + softSkillsScore + educationScore + workTasksScore + preferencesScore + aspirationsScore) / 7;
-        const scores = { averageScore, summaryScore, technicalSkillsScore, softSkillsScore, educationScore, workTasksScore, preferencesScore, aspirationsScore };
+
+        // Helper function to safely get embedding similarity
+        const getSimilarity = (jobSection: string, candidateSection: string) => {
+            const jobEmbedding = getEmbeddingSection(jobEmbeddings, jobSection);
+            const candidateEmbedding = getEmbeddingSection(candidateEmbeddings, candidateSection);
+            
+            if (!jobEmbedding || !candidateEmbedding) {
+                return 0;
+            }
+            
+            return cosineSimilarity(jobEmbedding.vector, candidateEmbedding.vector);
+        };
+
+        // Calculate individual scores
+        const summaryScore = getSimilarity("summary", "summary");
+        const technicalSkillsScore = getSimilarity("technical_skills", "technical_skills");
+        const softSkillsScore = getSimilarity("soft_skills", "soft_skills");
+        const educationScore = getSimilarity("education", "education");
+        const workTasksScore = getSimilarity("work_tasks", "work_experience");
+        const preferencesScore = getSimilarity("preferences", "preferences");
+        const aspirationsScore = getSimilarity("aspirations", "aspirations");
+
+        // Enhanced scoring with weighted importance and penalties
+        const weights = {
+            summary: 0.15,
+            technicalSkills: 0.25,
+            softSkills: 0.15,
+            education: 0.20, // Increased weight for education
+            workTasks: 0.15,
+            preferences: 0.05,
+            aspirations: 0.05
+        };
+
+        // Apply penalties for critical sections that are too low
+        const criticalThresholds = {
+            technicalSkills: 0.3,
+            education: 0.25, // Lower threshold for education
+            workTasks: 0.2
+        };
+
+        let weightedScore = 0;
+        let totalWeight = 0;
+
+        // Calculate weighted score with penalties
+        const sections = [
+            { name: 'summary', score: summaryScore, weight: weights.summary },
+            { name: 'technicalSkills', score: technicalSkillsScore, weight: weights.technicalSkills, critical: true },
+            { name: 'softSkills', score: softSkillsScore, weight: weights.softSkills },
+            { name: 'education', score: educationScore, weight: weights.education, critical: true },
+            { name: 'workTasks', score: workTasksScore, weight: weights.workTasks, critical: true },
+            { name: 'preferences', score: preferencesScore, weight: weights.preferences },
+            { name: 'aspirations', score: aspirationsScore, weight: weights.aspirations }
+        ];
+
+        for (const section of sections) {
+            let adjustedScore = section.score;
+            
+            // Apply penalty for critical sections below threshold
+            if (section.critical && criticalThresholds[section.name as keyof typeof criticalThresholds]) {
+                const threshold = criticalThresholds[section.name as keyof typeof criticalThresholds];
+                if (section.score < threshold) {
+                    // Apply exponential penalty but don't completely zero it out
+                    adjustedScore = section.score * Math.pow(section.score / threshold, 1.5);
+                }
+            }
+            
+            weightedScore += adjustedScore * section.weight;
+            totalWeight += section.weight;
+        }
+
+        // Normalize by total weight and apply final boost for good education matches
+        const finalAverageScore = totalWeight > 0 ? weightedScore / totalWeight : 0;
+        
+        // Boost education score if it's particularly good (>0.6) since education is often critical
+        const educationBoost = educationScore > 0.6 ? (educationScore - 0.6) * 0.3 : 0;
+        const boostedAverageScore = Math.min(finalAverageScore + educationBoost, 1.0);
+
+        const scores = { 
+            averageScore: Math.round(boostedAverageScore * 1000) / 1000,
+            summaryScore: Math.round(summaryScore * 1000) / 1000,
+            technicalSkillsScore: Math.round(technicalSkillsScore * 1000) / 1000,
+            softSkillsScore: Math.round(softSkillsScore * 1000) / 1000,
+            educationScore: Math.round(educationScore * 1000) / 1000,
+            workTasksScore: Math.round(workTasksScore * 1000) / 1000,
+            preferencesScore: Math.round(preferencesScore * 1000) / 1000,
+            aspirationsScore: Math.round(aspirationsScore * 1000) / 1000
+        };
         return scores;
     }
 });

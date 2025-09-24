@@ -19,8 +19,12 @@ export const candidates = defineTable({
 
 export const candidateSourceData = defineTable({
     candidateId: v.id("candidates"),
-    assessment: v.optional(v.any()),
-    hubertAnswers: v.optional(v.any()),
+    assessment: v.optional(v.object({
+        comment: v.string(),
+        rating: v.number(),
+        createdAt: v.string(),
+    })),
+    hubertAnswers: v.optional(v.string()),
     hubertUrl: v.optional(v.string()),
     resumeSummary: v.optional(v.string()),
     linkedinSummary: v.optional(v.string()),
@@ -68,7 +72,22 @@ export const candidateEmbeddings = defineTable({
     section: candidateProfileSections,
     metadata: v.optional(v.any()),
     vector: v.array(v.number()),
+    updatedAt: v.number(),
 })
     .index("by_candidate_id", ["candidateId"]) 
     .index("by_candidate_id_and_section", ["candidateId", "section"])
     .vectorIndex("vector", { vectorField: "vector", dimensions: 1536 })
+
+
+export const candidateTTCache = defineTable({
+    teamtailorId: v.string(),
+    candidateId: v.optional(v.id("candidates")),
+    name: v.string(),
+    email: v.string(),
+    hasAssessment: v.boolean(),
+    hasHubert: v.boolean(),
+    hasResumeSummary: v.boolean(),
+    hasLinkedinSummary: v.boolean(),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+}).index("by_candidate_id", ["candidateId"]).index("by_teamtailor_id", ["teamtailorId"]).searchIndex("by_name", { searchField: "name" }).index("by_has_assessment", ["hasAssessment"]).index("by_has_hubert", ["hasHubert"]).index("by_has_resume_summary", ["hasResumeSummary"])

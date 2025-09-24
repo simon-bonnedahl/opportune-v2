@@ -4,7 +4,7 @@ import { internal, api } from "./_generated/api";
 import { getWorkpoolForTaskType } from "./workpools";
 import { taskStatus, taskType, TaskType } from "./types";
 import { Id } from "./_generated/dataModel";
-import { paginationOptsValidator } from "convex/server";
+import { getFunctionAddress, paginationOptsValidator } from "convex/server";
 import { CandidateProfileSections } from "./tables/candidates";
 import { validateCandidateProfile } from "./candidates";
 import { JobProfileSections } from "./tables/jobs";
@@ -13,11 +13,11 @@ import { validateJobProfile } from "./jobs";
 
 
 
-export async function enqueueTask(ctx: ActionCtx, type: TaskType, triggeredBy: "user" | "task" | "cron" | "system", args: any, previousTaskId?: Id<"tasks"> ) {
+export async function enqueueTask(ctx: ActionCtx, type: TaskType, triggeredBy: "user" | "task" | "cron", args: any, previousTaskId?: Id<"tasks">, cronId?: string ) {
 
   const pool = getWorkpoolForTaskType(type);
   if (!pool) throw new Error(`No workpool found for task type: ${type}`);
-  const taskRef = pool.allowedTasks.find(task => task.type === type)?.ref;
+  const taskRef = pool.allowedTasks.find(allowedTask => allowedTask.type === type)?.ref;
   if (!taskRef) throw new Error(`No task ref found for task type: ${type}`);
 
   let triggeredById = undefined;
@@ -28,6 +28,9 @@ export async function enqueueTask(ctx: ActionCtx, type: TaskType, triggeredBy: "
     const user = await ctx.runQuery(api.users.current);
     if (!user) throw new Error("User not found");
     triggeredById = user._id;
+  }
+  if(triggeredBy === "cron") {
+    triggeredById = cronId;
   }
 
 
@@ -44,7 +47,8 @@ export async function enqueueTaskRerun(ctx: ActionCtx, taskId: Id<"tasks">) {
   if (!task) throw new Error("Task not found");
   const pool = getWorkpoolForTaskType(task.type as TaskType);
   if (!pool) throw new Error("No pool found for task type: " + task.type);
-  const taskRef = pool.allowedTasks.find(task => task.type === task.type)?.ref;
+
+  const taskRef = pool.allowedTasks.find(allowedTask => allowedTask.type === task.type)?.ref;
   if (!taskRef) throw new Error("No task ref found for task type: " + task.type);
 
   const user = await ctx.runQuery(api.users.current);
@@ -63,23 +67,23 @@ export async function enqueueTaskRerun(ctx: ActionCtx, taskId: Id<"tasks">) {
     workpool: v.string(),
     status: taskStatus,
     queuedAt: v.number(),
-    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron"), v.literal("system")),
-    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"))),
+    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron")),
+    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"), v.string())),
     args: v.any(),
   },
   handler: async (ctx, args) => {
-    const { type, workpool, status, queuedAt, triggeredBy } = args;
+    const { type, workpool, status, queuedAt, triggeredBy, triggeredById } = args;
     const taskId = await ctx.db.insert("tasks", {
       workpool,
       type,
       triggeredBy,
-      triggeredById: args.triggeredById,
+      triggeredById,
       args: args.args,
       status,
       queuedAt,
       attempts: 1,
       progress: 0,
-      progressMessage: "",
+      progressMessages: [],
       errorMessage: "",
     });
     return taskId;
@@ -105,17 +109,100 @@ export const updateTask = internalMutation({
     metadata: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    const { taskId, status, ...optionalFields } = args;
+    const { taskId, status, progressMessage, stoppedAt, ...optionalFields } = args;
+    const task = await ctx.db.get(taskId);
+    if (!task) throw new Error("Task not found");
+
+    const progressMessages = progressMessage 
+      ? [...task.progressMessages, { message: progressMessage, timestamp: Date.now() }]
+      : task.progressMessages;
+
 
     const updateData = Object.fromEntries(
       Object.entries({ status, ...optionalFields }).filter(([_, value]) => value !== undefined)
     );
 
-    await ctx.db.patch(taskId, updateData);
+
+    await ctx.db.patch(taskId, { ...updateData, progressMessages, stoppedAt });
   },
 });
 
 //TASKS
+
+export const task_tt_sync = internalAction({
+  args: {
+    taskId: v.id("tasks"),
+    updatedAt: v.optional(v.number()),
+    timeAgo: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { taskId, updatedAt, timeAgo } = args;
+    if(!updatedAt && !timeAgo) throw new Error("Updated at or time ago is required");
+    //set task to running
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", runAt: Date.now(), progress: 0 });
+    //get candidates by updated at
+    try {
+    const candidates = await ctx.runAction(internal.teamtailor.getCandidatesByUpdatedTT, { updatedAtTT: updatedAt || Date.now() - timeAgo!});
+    
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 0, progressMessage: "Syncing " + candidates.length + " candidates from Teamtailor" });
+    let progress = 0
+
+    for (let i = 0; i < candidates.length; i++) {
+     
+      const candidate = candidates[i];
+      const assessment = await ctx.runAction(internal.teamtailor.fetchCandidateAssesment, { teamtailorId: candidate.id });
+      const hubertAnswers = await ctx.runAction(internal.hubert.fetchHubert, { teamtailorId: candidate.id });
+      const resumeSummary = candidate.attributes["resume-summary"];
+      const linkedinSummary = candidate.attributes["linkedin-profile"];
+      await ctx.runMutation(internal.teamtailor.upsertCandidateTTCacheRow , {
+        teamtailorId: candidate.id,
+        name: candidate.attributes["first-name"] + " " + candidate.attributes["last-name"],
+        email: candidate.attributes.email,
+        hasAssessment: assessment ? true : false,
+        hasHubert: hubertAnswers ? true : false,
+        hasResumeSummary: resumeSummary ? true : false,
+        hasLinkedinSummary: linkedinSummary ? true : false,
+        updatedAt: Date.parse(candidate.attributes["updated-at"]),
+        createdAt: Date.parse(candidate.attributes["created-at"]),
+      });
+
+      progress = Math.round(i * (50 / candidates.length));
+      await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress });
+
+
+      
+  }
+  } catch (error) {
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when syncing candidates" });
+    return { success: false, message: "Sync failed" };
+  }
+
+  try {
+    const jobs = await ctx.runAction(internal.teamtailor.getJobsByUpdatedTT, { updatedAtTT: updatedAt || Date.now() - timeAgo!});
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 50, progressMessage: "Syncing " + jobs.length + " jobs from Teamtailor" });
+    let progress = 50;
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      await ctx.runMutation(internal.teamtailor.upsertJobTTCacheRow, { teamtailorId: job.id, updatedAt: Date.parse(job.attributes["updated-at"]), createdAt: Date.parse(job.attributes["created-at"]), title: job.attributes.title, body: job.attributes.body });
+
+
+
+      progress = 50 + Math.round(i * (50 / jobs.length));
+      await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress });
+    }
+  
+
+
+    } catch (error) {
+      await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when syncing jobs" });
+      return { success: false, message: "Sync failed" };
+    }
+
+    await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", stoppedAt: Date.now(), progress: 100, progressMessage: "Sync complete" });
+    return { success: true, message: "Sync complete" };
+  },
+});
+
 export const task_tt_import = internalAction({
   args: {
     taskId: v.id("tasks"),
@@ -360,8 +447,8 @@ export const task_embed_profile = internalAction({
           candidateProfile.summary,
           candidateProfile.technicalSkills.map((skill) => skill.name).join(", "),
           candidateProfile.softSkills.map((skill) => skill.name).join(", "),
-          candidateProfile.education.join(", "),
-          candidateProfile.workExperience.join(", "),
+          candidateProfile.education.join(". "), // Use period separation for better semantic parsing
+          candidateProfile.workExperience.join(". "), // Use period separation for better semantic parsing
           candidateProfile.preferences.join(", "),
           candidateProfile.aspirations.join(", ")
         ];
@@ -411,8 +498,8 @@ export const task_embed_profile = internalAction({
           jobProfile.summary,
           jobProfile.technicalSkills.map((skill) => skill.name).join(", "),
           jobProfile.softSkills.map((skill) => skill.name).join(", "),
-          jobProfile.education.join(", "),
-          jobProfile.workTasks.join(", "),
+          jobProfile.education.join(". "), // Use period separation for better semantic parsing
+          jobProfile.workTasks.join(". "), // Use period separation for better semantic parsing
           jobProfile.preferences.join(", "),
           jobProfile.aspirations.join(", ")
         ];
@@ -602,13 +689,40 @@ export const getFilteredTasksCount = query({
 });
 
 
+export const runTask = action({
+  args: {
+    taskType: taskType,
+    args: v.any(),
+    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron")),
+    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"), v.string())),
+  },
+  handler: async (ctx, args) => {
+    try {
+      if(args.triggeredBy === "cron") {
+        await enqueueTask(ctx, args.taskType, args.triggeredBy, args.args, undefined, args.triggeredById as string);
+      } else {
+        await enqueueTask(ctx, args.taskType, args.triggeredBy, args.args);
+      }
+    return { success: true, message: "Task queued" };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: "Task could not be queued" };
+    }
+  },
+});
+
 
 export const rerunTask = action({
   args: {
     taskId: v.id("tasks"),
   },
   handler: async (ctx, args) => {
-    await enqueueTaskRerun(ctx, args.taskId);
-    return { success: true, message: "Task rerunned" };
+    try {
+      await enqueueTaskRerun(ctx, args.taskId);
+      return { success: true, message: "Task queued for rerun" };
+    } catch (error) {
+      console.error(error);
+      return { success: false, message: "Task could not be queued for rerun" };
+    }
   },
 });

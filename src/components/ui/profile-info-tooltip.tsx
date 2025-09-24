@@ -2,29 +2,24 @@ import React from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Info } from "lucide-react";
+import { Info, Clock } from "lucide-react";
+import { formatTimeAgo, formatDate } from "@/lib/time-utils";
 
 interface ProfileInfoTooltipProps {
   modelId?: string;
   confidence?: number;
+  updatedAt?: number;
   children: React.ReactNode;
 }
 
-export function ProfileInfoTooltip({ modelId, confidence, children }: ProfileInfoTooltipProps) {
+export function ProfileInfoTooltip({ modelId, confidence, updatedAt, children }: ProfileInfoTooltipProps) {
   const confidencePercentage = confidence ? (confidence / 10) * 100 : 0;
   
-  const getConfidenceColor = (conf: number) => {
-    if (conf >= 8) return "bg-green-500 text-white";
-    if (conf >= 6) return "bg-yellow-500 text-white";
-    if (conf >= 4) return "bg-orange-500 text-white";
-    return "bg-red-500 text-white";
-  };
-
-  const getConfidenceLabel = (conf: number) => {
-    if (conf >= 8) return "Excellent";
-    if (conf >= 6) return "Good";
-    if (conf >= 4) return "Fair";
-    return "Poor";
+  const getProgressBarColor = (conf: number) => {
+    if (conf >= 8) return "bg-green-500";
+    if (conf >= 6) return "bg-yellow-500";
+    if (conf >= 4) return "bg-orange-500";
+    return "bg-red-500";
   };
 
   return (
@@ -54,20 +49,35 @@ export function ProfileInfoTooltip({ modelId, confidence, children }: ProfileInf
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Data Quality</span>
-                    <div className="flex items-center gap-2">
-                      <Badge 
-                        variant="outline" 
-                        className={`text-xs ${getConfidenceColor(confidence)} border-0`}
-                      >
-                        {getConfidenceLabel(confidence)}
-                      </Badge>
-                      <span className="text-sm font-medium">{confidence}/10</span>
+                    <span className="text-sm font-medium">{confidence}/10</span>
+                  </div>
+                  <div className="relative">
+                    <Progress 
+                      value={confidencePercentage} 
+                      className="h-2"
+                    />
+                    <div 
+                      className={`absolute top-0 left-0 h-2 rounded-full ${getProgressBarColor(confidence)}`}
+                      style={{ width: `${confidencePercentage}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {updatedAt && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Last Updated</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium">
+                      {formatDate(updatedAt)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatTimeAgo(updatedAt)}
                     </div>
                   </div>
-                  <Progress 
-                    value={confidencePercentage} 
-                    className="h-2"
-                  />
                 </div>
               )}
             </div>

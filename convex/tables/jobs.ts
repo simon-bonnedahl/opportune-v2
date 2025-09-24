@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
+import { title } from "process";
 
 export const jobs = defineTable({
   teamtailorId: v.string(),
@@ -49,7 +50,18 @@ export const jobEmbeddings = defineTable({
     section: jobProfileSections,
     metadata: v.optional(v.any()),
     vector: v.array(v.number()),
+    updatedAt: v.number(),
 })
     .index("by_job_id", ["jobId"]) 
     .index("by_job_id_and_section", ["jobId", "section"])
     .vectorIndex("vector", { vectorField: "vector", dimensions: 1536 })
+
+
+export const jobTTCache = defineTable({
+    teamtailorId: v.string(),
+    jobId: v.optional(v.id("jobs")),
+    title: v.string(),
+    body: v.string(),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+}).index("by_job_id", ["jobId"]).index("by_teamtailor_id", ["teamtailorId"]).searchIndex("by_title", { searchField: "title" })

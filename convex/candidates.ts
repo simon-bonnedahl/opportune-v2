@@ -1,5 +1,6 @@
 import { action, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
 import { enqueueTask } from "./tasks";
 import { candidateProfileSections } from "./tables/candidates";
 import { api, internal } from "./_generated/api";
@@ -9,37 +10,37 @@ import { paginationOptsValidator } from "convex/server";
 // Helper function to validate candidate profile completeness
 export function validateCandidateProfile(profile: any): void {
   const emptyFields = [];
-  
+
   // Check string fields
   if (!profile.summary || profile.summary.trim().length === 0) {
     emptyFields.push("summary");
   }
-  
+
   // Check array fields
   if (!profile.technicalSkills || profile.technicalSkills.length === 0) {
     emptyFields.push("technicalSkills");
   }
-  
+
   if (!profile.softSkills || profile.softSkills.length === 0) {
     emptyFields.push("softSkills");
   }
-  
+
   if (!profile.education || profile.education.length === 0) {
     emptyFields.push("education");
   }
-  
+
   if (!profile.workExperience || profile.workExperience.length === 0) {
     emptyFields.push("workExperience");
   }
-  
+
   if (!profile.preferences || profile.preferences.length === 0) {
     emptyFields.push("preferences");
   }
-  
+
   if (!profile.aspirations || profile.aspirations.length === 0) {
     emptyFields.push("aspirations");
   }
-  
+
   if (emptyFields.length > 0) {
     throw new Error(`Couldnt embed candidate profile. Missing or empty fields: ${emptyFields.join(", ")}`);
   }
@@ -70,7 +71,7 @@ export const create = internalMutation({
       .first();
 
     if (existingCandidate) {
-       await ctx.db.patch(existingCandidate._id, {
+      await ctx.db.patch(existingCandidate._id, {
         name: args.name,
         imageUrl: args.imageUrl,
         email: args.email,
@@ -81,8 +82,8 @@ export const create = internalMutation({
         updatedAt: Date.now(),
         updatedAtTT: args.updatedAtTT,
         createdAtTT: args.createdAtTT,
-       });
-       return existingCandidate._id;
+      });
+      return existingCandidate._id;
     }
 
     return await ctx.db.insert("candidates", {
@@ -105,15 +106,15 @@ export const upsertEmbedding = internalMutation({
   args: { candidateId: v.id("candidates"), vector: v.array(v.number()), section: candidateProfileSections, metadata: v.optional(v.any()) },
   handler: async (ctx, args) => {
     //update if exists - query by both candidateId and section to avoid race conditions
-    const existing = await ctx.db.query("candidateEmbeddings").withIndex("by_candidate_id_and_section", (q) => 
+    const existing = await ctx.db.query("candidateEmbeddings").withIndex("by_candidate_id_and_section", (q) =>
       q.eq("candidateId", args.candidateId).eq("section", args.section)
     ).first();
-    
+
     if (existing) {
-      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata });
+      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata, updatedAt: Date.now() });
       return existing._id;
     }
-    return await ctx.db.insert("candidateEmbeddings", { candidateId: args.candidateId, vector: args.vector, section: args.section, metadata: args.metadata });
+    return await ctx.db.insert("candidateEmbeddings", { candidateId: args.candidateId, vector: args.vector, section: args.section, metadata: args.metadata, updatedAt: Date.now() });
   },
 });
 
@@ -193,30 +194,12 @@ export const upsertProfile = internalMutation({
       .withIndex("by_candidate_id", (q) => q.eq("candidateId", args.candidateId))
       .first();
 
-    const { candidateId, ...rest } = args;
-    if (existing) { //TODO: is this needed?
-      const updateData = Object.fromEntries(
-        Object.entries({ ...rest }).filter(([_, value]) => value.length > 0)
-      );
-
-      await ctx.db.patch(args.candidateId, {...updateData, updatedAt: Date.now()});
+    if (existing) {
+      await ctx.db.patch(existing._id, { ...args, updatedAt: Date.now() });
       return existing._id;
     }
 
-    return await ctx.db.insert("candidateProfiles", {
-      candidateId: args.candidateId,
-      summary: args.summary,
-      description: args.description,
-      raw: args.raw,
-      metadata: args.metadata,
-      education: args.education,
-      technicalSkills: args.technicalSkills,
-      softSkills: args.softSkills,
-      workExperience: args.workExperience,
-      preferences: args.preferences,
-      aspirations: args.aspirations,
-      updatedAt: Date.now(),
-    });
+    return await ctx.db.insert("candidateProfiles", { ...args, updatedAt: Date.now() });
   },
 });
 
@@ -228,10 +211,7 @@ export const setProcessingTask = internalMutation({
 });
 
 
-
-
 //Api
-
 
 export const get = query({
   args: { candidateId: v.id("candidates") },
@@ -276,13 +256,13 @@ export const listPaginated = query({
   },
   handler: async (ctx, args) => {
     const search = args.search?.toLowerCase().trim();
-    if(!search) {
+    if (!search) {
       return await ctx.db.query("candidates").order("desc").paginate(args.paginationOpts);
     }
 
     return await ctx.db.query("candidates").withSearchIndex("by_name", (q) => q.search("name", search)).paginate(args.paginationOpts);
 
-    
+
   },
 });
 
@@ -292,7 +272,7 @@ export const search = query({
     search: v.string(),
   },
   handler: async (ctx, args) => {
-    if(args.search.length === 0) {
+    if (args.search.length === 0) {
       return await ctx.db.query("candidates").order("desc").take(10);
     }
     return await ctx.db.query("candidates").withSearchIndex("by_name", (q) => q.search("name", args.search)).take(10);
@@ -305,9 +285,10 @@ export const add = action({
   args: {
     teamtailorId: v.string(),
   },
-  handler: async (ctx, args) => {
-
-    await enqueueTask(ctx, "import", "user", { teamtailorId: args.teamtailorId, type: "candidate" });
+  returns: v.object({ taskId: v.id("tasks") }),
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const { taskId } = await enqueueTask(ctx, "import", "user", { teamtailorId: args.teamtailorId, type: "candidate" });
+    return { taskId };
   }
 });
 
@@ -327,8 +308,8 @@ export const addByUpdatedTT = action({
     updatedAtTT: v.number(),
   },
   handler: async (ctx, args) => {
-    //get teamtailorIds from internal.teamtailor.getCandidatesByUpdatedTT
-    const teamtailorIds = await ctx.runAction(internal.teamtailor.getCandidatesByUpdatedTT, { updatedAtTT: args.updatedAtTT });
+    const candidates = await ctx.runAction(internal.teamtailor.getCandidatesByUpdatedTT, { updatedAtTT: args.updatedAtTT });
+    const teamtailorIds = candidates.map((candidate) => candidate.id);
 
     //addMany with teamtailorIds
     await ctx.runAction(api.candidates.addMany, { teamtailorIds: teamtailorIds });
@@ -363,23 +344,64 @@ export const getCandidatesCount = query({
 export const getProcessingStatus = query({
   args: { candidateId: v.id("candidates") },
   handler: async (ctx, args) => {
-      const candidate = await ctx.db.get(args.candidateId);
-      if (candidate?.processingTask) {
-        const task = await ctx.db.get(candidate.processingTask);
-        return {
-          status: task?.status || "unknown",
-          progress: task?.progress || 0,
-          progressMessage: task?.progressMessage || "",
-          errorMessage: task?.errorMessage || "",
-        };
-      }
+    const candidate = await ctx.db.get(args.candidateId);
+    if (candidate?.processingTask) {
+      const task = await ctx.db.get(candidate.processingTask);
       return {
-        status: "unknown",
-        progress: 0,
-        progressMessage: "",
-        errorMessage: "",
+        status: task?.status || "succeeded",
+        progress: task?.progress || 0,
+        progressMessages: task?.progressMessages || [],
+        errorMessage: task?.errorMessage || "",
       };
-    },
+    }
+    return {
+      status: "succeeded",
+      progress: 0,
+      progressMessages: [],
+      errorMessage: "",
+    };
+  },
+});
+
+export const rebuildProfile = action({
+  args: { candidateId: v.id("candidates") },
+  returns: v.object({ taskId: v.id("tasks") }),
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const { candidateId } = args;
+
+    // Check if candidate exists
+    const candidate = await ctx.runQuery(api.candidates.get, { candidateId });
+    if (!candidate) {
+      throw new Error("Candidate not found");
+    }
+
+    // Enqueue rebuild profile task
+    const { taskId } = await enqueueTask(ctx, "build_profile", "user", { type: "candidate", id: candidateId });
+    return { taskId };
+  }
+});
+
+export const reembedProfile = action({
+  args: { candidateId: v.id("candidates") },
+  returns: v.object({ taskId: v.id("tasks") }),
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const { candidateId } = args;
+
+    // Check if candidate exists and has a profile
+    const candidate = await ctx.runQuery(api.candidates.get, { candidateId });
+    if (!candidate) {
+      throw new Error("Candidate not found");
+    }
+
+    const profile = await ctx.runQuery(api.candidates.getProfile, { candidateId });
+    if (!profile) {
+      throw new Error("Candidate profile not found. Please rebuild profile first.");
+    }
+
+    // Enqueue re-embed profile task
+    const { taskId } = await enqueueTask(ctx, "embed_profile", "user", { type: "candidate", id: candidateId });
+    return { taskId };
+  }
 });
 
 

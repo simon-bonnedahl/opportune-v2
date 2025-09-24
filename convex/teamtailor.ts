@@ -1,13 +1,20 @@
 import {
     action,
     internalAction,
+    internalMutation,
+    mutation,
     query
 } from "./_generated/server";
 import { v } from "convex/values";
+import { TeamtailorCandidate, TeamtailorJob } from "./types";
 
 const baseApiUrl = process.env.TEAMTAILOR_BASE_URL || "https://api.teamtailor.com/v1";
 const xameraTeamtailorId = "Epgs55TVBkQ"
 const baseWebUrl = process.env.TEAMTAILOR_BASE_WEB_URL || "https://app.teamtailor.com/companies/" + xameraTeamtailorId;
+
+
+
+
 
 function parseTeamtailorBody(text: string) {
 
@@ -46,7 +53,7 @@ function parseTeamtailorBody(text: string) {
   
 
   
-async function fetchAllPagesFromTeamtailor(url: string) {
+async function fetchAllPagesFromTeamtailor(url: string, maxRetries: number = 3) {
     const apiKey = process.env.TEAMTAILOR_API_KEY;
     
     if (!apiKey) {
@@ -56,17 +63,44 @@ async function fetchAllPagesFromTeamtailor(url: string) {
     const data : any[] = [];
 
     while (nextPage) {
-        const response = await fetch(nextPage, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Token token=${apiKey}`,
-                'X-Api-Version': '20210218',
-                'Content-Type': 'application/json',
-            },
-        });
-        const responseJson = await response.json();
-        nextPage = responseJson.links.next;
-        data.push(...responseJson.data);
+        let retries = 0;
+        let success = false;
+        
+        while (retries < maxRetries && !success) {
+            try {
+                const response = await fetch(nextPage, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Token token=${apiKey}`,
+                        'X-Api-Version': '20210218',
+                        'Content-Type': 'application/json',
+                    },
+                    // Add timeout to prevent hanging connections
+                    signal: AbortSignal.timeout(30000), // 30 second timeout
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Teamtailor API error: ${response.status} ${response.statusText}`);
+                }
+                
+                const responseJson = await response.json();
+                nextPage = responseJson.links?.next ? responseJson.links.next : undefined;
+                data.push(...responseJson.data);
+                success = true;
+                
+            } catch (error) {
+                retries++;
+                console.error(`Attempt ${retries} failed for URL ${nextPage}:`, error);
+                
+                if (retries >= maxRetries) {
+                    throw new Error(`Failed to fetch from Teamtailor API after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+                
+                // Exponential backoff: wait 1s, 2s, 4s between retries
+                const delay = Math.pow(2, retries - 1) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
     }
     return data;
 }
@@ -178,7 +212,13 @@ export const fetchCandidateAssesment = internalAction({
                 "Content-Type": "application/json",
             },
         });
-        let assesmentJson = await assesment.json();
+        let assesmentJson;
+        try {
+            assesmentJson = await assesment.json();
+        } catch (error) {
+            console.error("Error parsing assessment JSON:", error);
+            assesmentJson = { data: [] };
+        }
         
         // If no assessment found with new namespace, try the old "review" namespace
         if (!assesmentJson.data || assesmentJson.data.length === 0) {
@@ -192,17 +232,30 @@ export const fetchCandidateAssesment = internalAction({
                     "Content-Type": "application/json",
                 },
             });
-            assesmentJson = await assesment.json();
+            try {
+                assesmentJson = await assesment.json();
+            } catch (error) {
+                console.error("Error parsing assessment JSON (fallback):", error);
+                assesmentJson = { data: [] };
+            }
         }
         
-        if (!assesmentJson.data || assesmentJson.data.length === 0) return {};
-        
-        const assesmentData = JSON.parse(assesmentJson.data[0].attributes.data);
+        if (!assesmentJson.data || assesmentJson.data.length === 0) return;
+        try {
+        const dataString = assesmentJson.data[0].attributes.data;
+        if (!dataString || dataString.trim() === '') return;
+        const assesmentData = JSON.parse(dataString);
         return {
             comment: assesmentData.comment,
             rating: assesmentData.rating,
             createdAt: assesmentJson.data[0].attributes["created-at"],
         };
+        } catch (error) {
+            console.error("Error parsing assesment data");
+            console.error(error);
+            throw new Error("Error parsing assesment data");
+        }
+       
     },
 
 });
@@ -215,19 +268,24 @@ export const getCandidatesByUpdatedTT = internalAction({
     },
     handler: async (ctx, args) => {
         try {
-       
-            const teamtailorIds : string[] = [];
-            const data = await fetchAllPagesFromTeamtailor(`${baseApiUrl}/candidates?filter[updated-at][from]=${new Date(args.updatedAtTT).toISOString()}`);
-            
-            for (const candidate of data) {
-                teamtailorIds.push(candidate.id);
-            }
-            return teamtailorIds;
-            
+            return await fetchAllPagesFromTeamtailor(`${baseApiUrl}/candidates?filter[updated-at][from]=${new Date(args.updatedAtTT).toISOString()}`) as TeamtailorCandidate[];
         } catch (error) {
             throw new Error(error instanceof Error ? error.message : "Unknown error occurred");
         }
         
+    },
+});
+
+export const getJobsByUpdatedTT = internalAction({
+    args: {
+        updatedAtTT: v.number(),
+    },
+    handler: async (ctx, args) => {
+        try {
+            return await fetchAllPagesFromTeamtailor(`${baseApiUrl}/jobs?filter[updated-at][from]=${new Date(args.updatedAtTT).toISOString()}`) as TeamtailorJob[];
+        } catch (error) {
+            throw new Error(error instanceof Error ? error.message : "Unknown error occurred");
+        }
     },
 });
 
@@ -289,6 +347,75 @@ export const importJob = internalAction({
         } catch (error) {
             throw new Error(error instanceof Error ? error.message : "Unknown error occurred");
         }
+    },
+});
+
+export const upsertCandidateTTCacheRow = internalMutation({
+    args: {
+        teamtailorId: v.string(),
+        name: v.string(),
+        email: v.string(),
+        hasAssessment: v.boolean(),
+        hasHubert: v.boolean(),
+        hasResumeSummary: v.boolean(),
+        hasLinkedinSummary: v.boolean(),
+        updatedAt: v.number(),
+        createdAt: v.number(),
+    },
+    handler: async (ctx, args) => {
+        const candidate = await ctx.db.query("candidateTTCache").filter((q) => q.eq(q.field("teamtailorId"), args.teamtailorId)).first();
+        if (candidate) {
+            return await ctx.db.patch(candidate._id, {
+                name: args.name,
+                email: args.email,
+                hasAssessment: args.hasAssessment,
+                hasHubert: args.hasHubert,
+                hasResumeSummary: args.hasResumeSummary,
+                hasLinkedinSummary: args.hasLinkedinSummary,
+                updatedAt: args.updatedAt,
+                createdAt: args.createdAt,
+            });
+        }
+
+        return await ctx.db.insert("candidateTTCache", {
+            teamtailorId: args.teamtailorId,
+            name: args.name,
+            email: args.email,
+            hasAssessment: args.hasAssessment,
+            hasHubert: args.hasHubert,
+            hasResumeSummary: args.hasResumeSummary,
+            hasLinkedinSummary: args.hasLinkedinSummary,
+            updatedAt: Date.now(),
+            createdAt: Date.now(),
+        });
+},
+});
+
+export const upsertJobTTCacheRow = internalMutation({
+    args: {
+        teamtailorId: v.string(),
+        title: v.string(),
+        body: v.string(),
+        updatedAt: v.number(),
+        createdAt: v.number(),
+    },
+    handler: async (ctx, args) => {
+        const job = await ctx.db.query("jobTTCache").filter((q) => q.eq(q.field("teamtailorId"), args.teamtailorId)).first();
+        if (job) {
+            return await ctx.db.patch(job._id, {
+                title: args.title,
+                body: args.body,
+                updatedAt: args.updatedAt,
+                createdAt: args.createdAt,
+            });
+        }
+        return await ctx.db.insert("jobTTCache", {
+            teamtailorId: args.teamtailorId,
+            title: args.title,
+            body: args.body,
+            updatedAt: args.updatedAt,
+            createdAt: args.createdAt,
+        });
     },
 });
 
@@ -359,7 +486,7 @@ export const listJobsFromTeamtailor = action({
                 department: job.attributes.department,
                 bodyLength: job.attributes.body.length,
                 location: job.attributes.location,
-                updatedAtTT: Date.parse(job.attributes["updated-at"]),
+                updatedAt: Date.parse(job.attributes["updated-at"]),
                 createdAtTT: Date.parse(job.attributes["created-at"]),
                 link: baseWebUrl + "/jobs/" + job.id,
             };
@@ -376,5 +503,23 @@ export const listJobsFromTeamtailor = action({
                 hasPrev: !!response.links?.prev,
             }
         };
+    },
+});
+
+
+
+export const listCandidatesTTCache = query({
+    args: {},
+    handler: async (ctx, args) => {
+        const candidates = await ctx.db.query("candidateTTCache").collect();
+        return candidates;
+    },
+});
+
+export const listJobsTTCache = query({
+    args: {},
+    handler: async (ctx, args) => {
+        const jobs = await ctx.db.query("jobTTCache").collect();
+        return jobs;
     },
 });

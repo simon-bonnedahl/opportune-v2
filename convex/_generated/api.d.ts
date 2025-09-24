@@ -8,12 +8,10 @@
  * @module
  */
 
+import type * as _crons from "../_crons.js";
 import type * as candidates from "../candidates.js";
 import type * as clerk from "../clerk.js";
 import type * as companies from "../companies.js";
-import type * as cronz from "../cronz.js";
-import type * as embeddings from "../embeddings.js";
-import type * as embeddingsAction from "../embeddingsAction.js";
 import type * as http from "../http.js";
 import type * as hubert from "../hubert.js";
 import type * as jobs from "../jobs.js";
@@ -44,12 +42,10 @@ import type {
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  _crons: typeof _crons;
   candidates: typeof candidates;
   clerk: typeof clerk;
   companies: typeof companies;
-  cronz: typeof cronz;
-  embeddings: typeof embeddings;
-  embeddingsAction: typeof embeddingsAction;
   http: typeof http;
   hubert: typeof hubert;
   jobs: typeof jobs;

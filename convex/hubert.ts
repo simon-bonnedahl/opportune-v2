@@ -12,7 +12,13 @@ export async function getHubertOpenSummaryUrl(teamtailorId: string) {
             "Content-Type": "application/json",
         },
     });
+    if (!response.ok) {
+        throw new Error(`Teamtailor API error: ${response.status} ${response.statusText}`);
+    }
     const responseJson = await response.json();
+    if (!responseJson.data) {
+        throw new Error("No partner results found");
+    }
     for (const partnerResult of responseJson.data) {
         if(partnerResult.attributes["partner-name"].toLowerCase() === "hubert.ai") {
             for (const attachment of partnerResult.attributes.attachments) {

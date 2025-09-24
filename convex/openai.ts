@@ -16,9 +16,9 @@ If the information is not available, return an empty array or string.
 Dont make up information or make assumptions. 
 
 The candidate profile should be a JSON object with the following fields:
-- description: a short sentence that describes the candidate
-- summary: a summary of the candidate's profile
-- education: an array of the candidate's education
+- description: a short sentence that describes the candidate, dont use the canidates name in the description
+- summary: a summary of the candidate's profile, dont use the canidates name in the summary
+- education: an array of the candidate's education (include degree type, field of study, university, graduation year if available)
 - technicalSkills: an array of the candidate's technical skills with a score between 1 and 5
 - softSkills: an array of the candidate's soft skills with a score between 1 and 5
 - workExperience: an array of the candidate's work experience
@@ -94,7 +94,7 @@ Do not make up information or make assumptions.
 
 The job profile should be a JSON object with the following fields:
 - summary: a summary of the job and its main responsibilities
-- education: an array of required or preferred education/degree fields
+- education: an array of required or preferred education/degree fields (be specific about degree types and fields of study)
 - technicalSkills: an array of required or meriting technical skills with a score between 1 and 5 (5 = must-have, 1 = nice-to-have)
 - softSkills: an array of required or meriting soft skills with a score between 1 and 5 (5 = must-have, 1 = nice-to-have)
 - workTasks: an array of main work tasks and responsibilities

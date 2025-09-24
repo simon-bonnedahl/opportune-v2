@@ -1,12 +1,5 @@
-import { vWorkIdValidator, Workpool, WorkpoolComponent, WorkpoolOptions } from "@convex-dev/workpool";
-import {
-    customCtx,
-    customMutation,
-    customQuery,
-    customAction
-  } from "convex-helpers/server/customFunctions";
+import { Workpool, WorkpoolComponent, WorkpoolOptions } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
-import { action, ActionCtx, MutationCtx, query } from "./_generated/server";
 import { TaskType } from "./types";
 import { FunctionReference } from "convex/server";
 
@@ -25,12 +18,19 @@ class TaskWorkPool extends Workpool {
 export const importPool: TaskWorkPool = new TaskWorkPool(
     components.importWorkpool,
     "import",
-    { maxParallelism: 1, retryActionsByDefault: false, logLevel: "INFO" },
+    { maxParallelism: 2, retryActionsByDefault: false, logLevel: "INFO" },
     [
+        
         {
             type: "import",
             ref: internal.tasks.task_tt_import,
+        },
+        {
+            type: "sync",
+            ref: internal.tasks.task_tt_sync,
         }
+        
+
     ]
 );
 

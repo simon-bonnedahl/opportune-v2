@@ -4,6 +4,7 @@ import {
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
+  IconClock,
   IconCommand,
   IconCreditCard,
   IconFile,
@@ -79,5 +80,6 @@ export const Icons = {
   laptop: IconDeviceLaptop,
   github: IconBrandGithub,
   twitter: IconBrandTwitter,
-  check: IconCheck
+  check: IconCheck,
+  clock: IconClock
 };

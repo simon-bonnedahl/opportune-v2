@@ -80,6 +80,50 @@ export function CandidatesTable({
     );
   }
 
+  function SourceLogos({ candidateId }: { candidateId: Id<"candidates"> }) {
+    const sourceData = useQuery(api.candidates.getSourceData, { candidateId });
+    
+    const hasTeamtailor = sourceData?.assessment;
+    const hasHubert = sourceData?.hubertAnswers;
+    const hasLinkedin = sourceData?.linkedinSummary;
+    
+    if (!hasTeamtailor && !hasHubert) {
+      return <span className="text-xs text-muted-foreground">-</span>;
+    }
+
+    return (
+      <div className="flex items-center gap-1">
+        {hasTeamtailor && (
+          <Image
+            src="/images/teamtailor_logo.png"
+            alt="Teamtailor"
+            width={16}
+            height={16}
+            className="size-5 rounded-full"
+          />
+        )}
+        {hasHubert && (
+          <Image
+            src="/images/hubert_logo.png"
+            alt="Hubert"
+            width={16}
+            height={16}
+            className="size-5 rounded-full "
+          />
+        )}
+        {hasLinkedin && (
+          <Image
+            src="/images/linkedin_logo.png"
+            alt="Linkedin"
+            width={16}
+            height={16}
+            className="size-5 rounded-full"
+          />
+        )}
+      </div>
+    );
+  }
+
   function SkeletonRow() {
     return (
       <TableRow className="h-12">
@@ -100,6 +144,9 @@ export function CandidatesTable({
           <Skeleton className="h-4 w-20" />
         </TableCell>
         <TableCell className="w-32 py-3">
+          <Skeleton className="h-4 w-8" />
+        </TableCell>
+        <TableCell className="w-32 py-3">
           <Skeleton className="h-4 w-16" />
         </TableCell>
         <TableCell className="w-32 py-3">
@@ -118,6 +165,7 @@ export function CandidatesTable({
               <TableHead className="w-64">Name</TableHead>
               <TableHead className="w-64">Tags</TableHead>
               <TableHead className="w-32">Best Match</TableHead>
+              <TableHead className="w-32">Source</TableHead>
               <TableHead className="w-32">Processing</TableHead>
               <TableHead className="w-32">Imported</TableHead>
             </TableRow>
@@ -136,7 +184,7 @@ export function CandidatesTable({
               </>
             ) : data.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   No candidates found
                 </TableCell>
               </TableRow>
@@ -173,6 +221,9 @@ export function CandidatesTable({
                   </TableCell>
                   <TableCell className="w-32">
                     {/* Best match column intentionally left blank for now */}
+                  </TableCell>
+                  <TableCell className="w-32">
+                    <SourceLogos candidateId={candidate._id} />
                   </TableCell>
                   <TableCell className="w-32">
                     <ProcessingStatusPill candidateId={candidate._id} />

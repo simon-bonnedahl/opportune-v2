@@ -24,6 +24,7 @@ export function TriggeredByDisplay({ task, onTaskClick, className = "", showDate
     task.triggeredBy === "task" && task.triggeredById ? { taskId: task.triggeredById as Id<"tasks"> } : "skip"
   );
 
+
   function renderContent() {
     const dateStr = showDate && task._creationTime ? formatShortDate(task._creationTime) : "";
     const byPrefix = dateStr ? ` by ` : "";
@@ -97,8 +98,18 @@ export function TriggeredByDisplay({ task, onTaskClick, className = "", showDate
         return buttonContent;
       }
     }
-
-    // For "cron", "system", or other trigger types
+    if (task.triggeredBy === "cron" && task.triggeredById) {
+      return (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {dateStr}
+            {byPrefix}
+            <span className="capitalize">{task.triggeredById}</span>
+          </span>
+        </div>
+      );
+    }
+    // For other trigger types
     return (
       <div className="flex items-center gap-2">
         <span className="text-sm text-muted-foreground">

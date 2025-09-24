@@ -13,14 +13,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JobsTable } from "@/components/jobs/jobs-table";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useDebounce } from "@/hooks/use-debounce";
+import { useProgressToast } from "@/hooks/use-progress-toast";
 import { toast } from "sonner";
-import { Plus, Info } from "lucide-react";
+import { Plus, Info, MoreVertical, RefreshCw, UserCog, Brain } from "lucide-react";
 import { Id } from "@/lib/convex";
 
 
 export default function JobsPage() {
   const [selectedId, setSelectedId] = useState<Id<"jobs"> | null>(null);
+  const { showProgressToast } = useProgressToast();
   const [searchText, setSearchText] = useState<string>("");
   const debouncedSearchText = useDebounce(searchText, 500);
 
@@ -87,7 +90,7 @@ export default function JobsPage() {
         />
       </Card>
 
-      {selectedId && <JobDialog id={selectedId} onClose={() => setSelectedId(null)} />}
+      {selectedId && <JobDialog id={selectedId} onClose={() => setSelectedId(null)} showProgressToast={showProgressToast} />}
     </div>
   );
 }
@@ -100,16 +103,109 @@ function getInitials(text?: string) {
   return (first + last).toUpperCase();
 }
 
-function JobDialog({ id, onClose }: { id: Id<"jobs">; onClose: () => void }) {
-  const job = useQuery(api.jobs.get, { jobId: id  }) 
-
+function JobDialog({ id, onClose, showProgressToast }: { id: Id<"jobs">; onClose: () => void; showProgressToast: (taskId: Id<"tasks">, title: string) => void }) {
+  const job = useQuery(api.jobs.get, { jobId: id  })
   const profile = useQuery(api.jobs.getProfile, { jobId: id })
   const sourceData = useQuery(api.jobs.getSourceData, { jobId: id  });
+  const processingStatus = useQuery(api.jobs.getProcessingStatus, { jobId: id });
   const [open, setOpen] = useState(true);
+  const [isReimporting, setIsReimporting] = useState(false);
+  const [isRebuilding, setIsRebuilding] = useState(false);
+  const [isReembedding, setIsReembedding] = useState(false);
+  
+  const addJob = useAction(api.jobs.add);
+  const rebuildProfile = useAction(api.jobs.rebuildProfile);
+  const reembedProfile = useAction(api.jobs.reembedProfile);
+
+  function ProcessingStatusPill() {
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case "running": return "bg-blue-500 animate-pulse";
+        case "queued": return "bg-yellow-500";
+        case "succeeded": return "bg-emerald-500";
+        case "failed": return "bg-red-500";
+        case "canceled": return "bg-gray-500";
+        case "none": return "bg-gray-300";
+        default: return "bg-gray-400";
+      }
+    };
+
+    const getStatusLabel = (status: string) => {
+      switch (status) {
+        case "running": return "Running";
+        case "queued": return "Queued";
+        case "succeeded": return "Completed";
+        case "failed": return "Failed";
+        case "canceled": return "Canceled";
+        case "none": return "None";
+        default: return "Unknown";
+      }
+    };
+
+    return (
+      <div className="inline-flex items-center gap-2 text-xs">
+        <span className={`inline-block h-2 w-2 rounded-full ${getStatusColor(processingStatus?.status ?? "unknown")}`} />
+        <span>{getStatusLabel(processingStatus?.status ?? "unknown")}</span>
+        {processingStatus?.status === "running" && processingStatus?.progress > 0 && (
+          <span className="text-muted-foreground">({processingStatus?.progress}%)</span>
+        )}
+      </div>
+    );
+  }
   
   const close = () => { 
     setOpen(false); 
     onClose(); 
+  };
+
+  const handleReimport = async () => {
+    if (!job?.teamtailorId) {
+      toast.error("No TeamTailor ID found for this job");
+      return;
+    }
+
+    setIsReimporting(true);
+    try {
+      const result = await addJob({ teamtailorId: job.teamtailorId });
+      if (result?.taskId) {
+        showProgressToast(result.taskId, "Re-importing Job");
+      }
+    } catch (error) {
+      console.error("Failed to re-import job:", error);
+      toast.error("Failed to start job re-import. Please try again.");
+    } finally {
+      setIsReimporting(false);
+    }
+  };
+
+  const handleRebuildProfile = async () => {
+    setIsRebuilding(true);
+    try {
+      const result = await rebuildProfile({ jobId: id });
+      if (result?.taskId) {
+        showProgressToast(result.taskId, "Rebuilding Job Profile");
+      }
+    } catch (error) {
+      console.error("Failed to rebuild profile:", error);
+      toast.error("Failed to rebuild profile");
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
+
+  const handleReembedProfile = async () => {
+    setIsReembedding(true);
+    try {
+      const result = await reembedProfile({ jobId: id });
+      if (result?.taskId) {
+        showProgressToast(result.taskId, "Re-embedding Job Profile");
+      }
+    } catch (error) {
+      console.error("Failed to re-embed profile:", error);
+      toast.error("Failed to re-embed profile");
+    } finally {
+      setIsReembedding(false);
+    }
   };
   
   const initials = getInitials(job?.title);
@@ -126,9 +222,45 @@ function JobDialog({ id, onClose }: { id: Id<"jobs">; onClose: () => void }) {
               </Avatar>
               <DialogTitle className="text-base font-semibold leading-none">{job?.title}</DialogTitle>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              {job?._creationTime && <div>{new Date(job._creationTime).toLocaleDateString()}</div>}
-              <div className="flex items-center gap-2"><span className="inline-block size-2 rounded-full bg-emerald-500" />Processed</div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 text-xs">
+                {job?._creationTime && <div>{new Date(job._creationTime).toLocaleDateString()}</div>}
+                <ProcessingStatusPill />
+              </div>
+              
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem 
+                    onClick={handleReimport}
+                    disabled={isReimporting || !job?.teamtailorId}
+                    className="cursor-pointer"
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isReimporting ? 'animate-spin' : ''}`} />
+                    {isReimporting ? 'Re-importing...' : 'Re-import'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={handleRebuildProfile}
+                    disabled={isRebuilding}
+                    className="cursor-pointer"
+                  >
+                    <UserCog className={`h-4 w-4 mr-2 ${isRebuilding ? 'animate-spin' : ''}`} />
+                    {isRebuilding ? 'Rebuilding...' : 'Rebuild Profile'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={handleReembedProfile}
+                    disabled={isReembedding || !profile}
+                    className="cursor-pointer"
+                  >
+                    <Brain className={`h-4 w-4 mr-2 ${isReembedding ? 'animate-spin' : ''}`} />
+                    {isReembedding ? 'Re-embedding...' : 'Re-embed Profile'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </DialogHeader>
@@ -180,6 +312,7 @@ function JobDialog({ id, onClose }: { id: Id<"jobs">; onClose: () => void }) {
                     <ProfileInfoTooltip 
                       modelId={profile?.metadata?.modelId} 
                       confidence={profile?.metadata?.confidence}
+                      updatedAt={profile?.updatedAt}
                     >
                       <div>
                         <Info className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />

@@ -1,8 +1,8 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { role, taskStatus } from "./types";
-import { candidateProfiles, candidateEmbeddings, candidates, candidateSourceData } from "./tables/candidates";
-import { jobs, jobSourceData, jobProfiles, jobEmbeddings } from "./tables/jobs";
+import { candidateProfiles, candidateEmbeddings, candidates, candidateSourceData, candidateTTCache } from "./tables/candidates";
+import { jobs, jobSourceData, jobProfiles, jobEmbeddings, jobTTCache } from "./tables/jobs";
 
 export default defineSchema({
   users: defineTable({
@@ -17,10 +17,12 @@ export default defineSchema({
   candidateSourceData: candidateSourceData,
   candidateProfiles: candidateProfiles,
   candidateEmbeddings: candidateEmbeddings,
+  candidateTTCache: candidateTTCache,
   jobs: jobs,
   jobSourceData: jobSourceData,
   jobProfiles: jobProfiles,
   jobEmbeddings: jobEmbeddings,
+  jobTTCache: jobTTCache,
 
   companies: defineTable({
     name: v.string(),
@@ -55,13 +57,16 @@ export default defineSchema({
   tasks: defineTable({
     workpool: v.string(),
     type: v.string(),
-    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron"), v.literal("system")),
-    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"))),
+    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron")),
+    triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"), v.string())),
     args: v.optional(v.any()),
     status: taskStatus,
     attempts: v.number(),
     progress: v.number(),
-    progressMessage: v.optional(v.string()),
+    progressMessages: v.array(v.object({
+      message: v.string(),
+      timestamp: v.number(),
+    })),
     errorMessage: v.optional(v.string()),
     queuedAt: v.number(),
     runAt: v.optional(v.number()),

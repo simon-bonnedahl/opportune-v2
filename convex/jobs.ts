@@ -1,6 +1,8 @@
 import { action, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
 import { enqueueTask } from "./tasks";
+import { api } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { candidateProfileSections } from "./tables/candidates";
 import { jobProfileSections } from "./tables/jobs";
@@ -184,10 +186,10 @@ export const upsertEmbedding = internalMutation({
     ).first();
     
     if (existing) {
-      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata });
+      await ctx.db.patch(existing._id, { vector: args.vector, metadata: args.metadata, updatedAt: Date.now() });
       return existing._id;
     }
-    return await ctx.db.insert("jobEmbeddings", { jobId: args.jobId, vector: args.vector, section: args.section, metadata: args.metadata });
+    return await ctx.db.insert("jobEmbeddings", { jobId: args.jobId, vector: args.vector, section: args.section, metadata: args.metadata, updatedAt: Date.now() });
   },
 });
 
@@ -258,8 +260,10 @@ export const add = action({
   args: {
     teamtailorId: v.string(),
   },
-  handler: async (ctx, args) => {
-    await enqueueTask(ctx, "import", "user", { teamtailorId: args.teamtailorId, type: "job" });
+  returns: v.object({ taskId: v.id("tasks") }),
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const { taskId } = await enqueueTask(ctx, "import", "user", { teamtailorId: args.teamtailorId, type: "job" });
+    return { taskId };
   }
 });
 
@@ -301,16 +305,57 @@ export const getProcessingStatus = query({
         return {
           status: task?.status || "unknown",
           progress: task?.progress || 0,
-          progressMessage: task?.progressMessage || "",
+          progressMessages: task?.progressMessages || [],
           errorMessage: task?.errorMessage || "",
         };
       }
       return {
         status: "unknown",
         progress: 0,
-        progressMessage: "",
+        progressMessages: [],
         errorMessage: "",
       };
     },
+});
+
+export const rebuildProfile = action({
+  args: { jobId: v.id("jobs") },
+  returns: v.object({ taskId: v.id("tasks") }),
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const { jobId } = args;
+    
+    // Check if job exists
+    const job = await ctx.runQuery(api.jobs.get, { jobId });
+    if (!job) {
+      throw new Error("Job not found");
+    }
+    
+    // Enqueue rebuild profile task
+    const { taskId } = await enqueueTask(ctx, "build_profile", "user", { type: "job", id: jobId });
+    return { taskId };
+  }
+});
+
+export const reembedProfile = action({
+  args: { jobId: v.id("jobs") },
+  returns: v.object({ taskId: v.id("tasks") }),
+  handler: async (ctx, args): Promise<{ taskId: Id<"tasks"> }> => {
+    const { jobId } = args;
+    
+    // Check if job exists and has a profile
+    const job = await ctx.runQuery(api.jobs.get, { jobId });
+    if (!job) {
+      throw new Error("Job not found");
+    }
+    
+    const profile = await ctx.runQuery(api.jobs.getProfile, { jobId });
+    if (!profile) {
+      throw new Error("Job profile not found. Please rebuild profile first.");
+    }
+    
+    // Enqueue re-embed profile task
+    const { taskId } = await enqueueTask(ctx, "embed_profile", "user", { type: "job", id: jobId });
+    return { taskId };
+  }
 });
 
