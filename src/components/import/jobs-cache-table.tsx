@@ -1,8 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Id } from "../../../../convex/_generated/dataModel";
+import { Id } from "@/lib/convex";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
