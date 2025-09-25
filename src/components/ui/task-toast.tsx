@@ -84,9 +84,9 @@ export function TaskToast({ taskId, title, toastId }: TaskToastProps) {
   };
 
   return (
-    <div className="w-full max-w-sm space-y-3">
+    <div className="w-full max-w-sm min-h-[3rem]">
       {/* Header with title and status */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {getStatusIcon()}
           <span className="font-medium text-sm">{title}</span>
@@ -98,44 +98,41 @@ export function TaskToast({ taskId, title, toastId }: TaskToastProps) {
 
       {/* Progress bar for running tasks */}
       {task.status === "running" && typeof task.progress === "number" && (
-        <div className="space-y-2">
+        <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>Progress</span>
             <span>{task.progress}%</span>
           </div>
-          <Progress value={task.progress} className="h-2" />
+          <Progress value={task.progress} className="h-1.5" />
         </div>
       )}
 
-      {/* Success message */}
+      {/* Status messages - compact inline format */}
       {task.status === "succeeded" && (
-        <div className="flex items-center gap-2 text-sm text-green-600">
-          <Icons.check className="h-4 w-4" />
-          <span>Task completed successfully</span>
+        <div className="flex items-center gap-1.5 text-xs text-green-600">
+          <Icons.check className="h-3 w-3" />
+          <span>Completed successfully</span>
         </div>
       )}
 
-      {/* Error message */}
       {task.status === "failed" && (
-        <div className="flex items-center gap-2 text-sm text-red-600">
-          <Icons.warning className="h-4 w-4" />
-          <span>Task failed to complete</span>
+        <div className="flex items-center gap-1.5 text-xs text-red-600">
+          <Icons.warning className="h-3 w-3" />
+          <span>Failed to complete</span>
         </div>
       )}
 
-      {/* Canceled message */}
       {task.status === "canceled" && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Icons.close className="h-4 w-4" />
-          <span>Task was canceled</span>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Icons.close className="h-3 w-3" />
+          <span>Canceled</span>
         </div>
       )}
 
-      {/* Queued message */}
       {task.status === "queued" && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Icons.clock className="h-4 w-4" />
-          <span>Task is queued and waiting to start</span>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Icons.clock className="h-3 w-3" />
+          <span>Queued</span>
         </div>
       )}
     </div>

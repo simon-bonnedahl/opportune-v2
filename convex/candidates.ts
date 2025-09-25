@@ -178,14 +178,7 @@ export const upsertProfile = internalMutation({
       })
 
     ),
-    softSkills: (v.array(
-
-      v.object({
-        name: v.string(),
-        score: v.number(),
-      })
-
-    )),
+    softSkills: v.array(v.string()),
   },
   handler: async (ctx, args) => {
 

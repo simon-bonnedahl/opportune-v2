@@ -39,7 +39,7 @@ export const candidateProfiles = defineTable({
     metadata: v.any(),
     description: v.string(),
     summary: v.string(),
-    technicalSkills: 
+    technicalSkills:
         v.array(
             v.object({
                 name: v.string(),
@@ -47,14 +47,7 @@ export const candidateProfiles = defineTable({
             })
         )
     ,
-    softSkills: 
-        v.array(
-            v.object({
-                name: v.string(),
-                score: v.number(),
-            })
-        )
-    ,
+    softSkills: v.array(v.string()),
     education: v.array(v.string()),
     workExperience: v.array(v.string()),
     preferences: v.array(v.string()),
@@ -74,7 +67,7 @@ export const candidateEmbeddings = defineTable({
     vector: v.array(v.number()),
     updatedAt: v.number(),
 })
-    .index("by_candidate_id", ["candidateId"]) 
+    .index("by_candidate_id", ["candidateId"])
     .index("by_candidate_id_and_section", ["candidateId", "section"])
     .vectorIndex("vector", { vectorField: "vector", dimensions: 1536 })
 

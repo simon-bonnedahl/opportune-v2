@@ -10,16 +10,21 @@ import { toast } from "sonner";
 
 import { CandidatesTable } from "@/components/import/candidates-table";
 import { JobsTable } from "@/components/import/jobs-table";
+import { CandidatesCacheTable } from "@/components/import/candidates-cache-table";
+import { JobsCacheTable } from "@/components/import/jobs-cache-table";
 import { ImportConfirmationDialog } from "@/components/import/import-confirmation-dialog";
 import { api } from "../../../../convex/_generated/api";
 import type { TeamTailorCandidate, TeamTailorJob } from "@/types/teamtailor";
+import { useQuery, usePaginatedQuery } from "convex/react";
 
 export default function ImportPage() {
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
+  const [selectedCacheCandidateIds, setSelectedCacheCandidateIds] = useState<string[]>([]);
+  const [selectedCacheJobIds, setSelectedCacheJobIds] = useState<string[]>([]);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [sortMode, setSortMode] = useState<"updated-at" | "created-at">("updated-at");
-  const [activeTab, setActiveTab] = useState<"candidates" | "jobs">("candidates");
+  const [activeTab, setActiveTab] = useState<"candidates" | "jobs" | "candidates-cache" | "jobs-cache">("candidates");
   
   // Candidates state
   const [candidatesData, setCandidatesData] = useState<unknown[]>([]);
@@ -48,7 +53,19 @@ export default function ImportPage() {
   const listCandidates = useAction(api.teamtailor.listCandidatesFromTeamtailor);
   const listJobs = useAction(api.teamtailor.listJobsFromTeamtailor);
 
-  const totalSelected = selectedCandidateIds.length + selectedJobIds.length;
+  // Cache data queries
+  const candidatesCacheResult = usePaginatedQuery(
+    api.teamtailor.listCandidatesTTCache,
+    {},
+    { initialNumItems: 25 }
+  );
+  const jobsCacheResult = usePaginatedQuery(
+    api.teamtailor.listJobsTTCache,
+    {},
+    { initialNumItems: 25 }
+  );
+
+  const totalSelected = selectedCandidateIds.length + selectedJobIds.length + selectedCacheCandidateIds.length + selectedCacheJobIds.length;
 
   const loadCandidates = useCallback(async (page: number = 1, perPage: number = 25, sort?: string) => {
     setCandidatesLoading(true);
@@ -93,6 +110,8 @@ export default function ImportPage() {
   const handleImportComplete = () => {
     setSelectedCandidateIds([]);
     setSelectedJobIds([]);
+    setSelectedCacheCandidateIds([]);
+    setSelectedCacheJobIds([]);
     // Refresh data
     loadCandidates(candidatesPagination.currentPage, candidatesPagination.perPage);
     loadJobs(jobsPagination.currentPage, jobsPagination.perPage);
@@ -137,7 +156,7 @@ export default function ImportPage() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "candidates" | "jobs")} className="w-full">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "candidates" | "jobs" | "candidates-cache" | "jobs-cache")} className="w-full">
           <div className="border-b">
             <div className="flex items-center justify-between">
               <TabsList className="h-auto p-0 bg-transparent">
@@ -163,12 +182,38 @@ export default function ImportPage() {
                     </Badge>
                   )}
                 </TabsTrigger>
+                <TabsTrigger 
+                  value="candidates-cache" 
+                  className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-6 py-3"
+                >
+                  Cached Candidates
+                  {selectedCacheCandidateIds.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {selectedCacheCandidateIds.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="jobs-cache" 
+                  className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-6 py-3"
+                >
+                  Cached Jobs
+                  {selectedCacheJobIds.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {selectedCacheJobIds.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
               </TabsList>
               <div className="text-sm text-muted-foreground px-6">
                 {activeTab === "candidates" ? (
                   `Showing ${candidatesData.length} of ${candidatesPagination.totalCount} candidates`
-                ) : (
+                ) : activeTab === "jobs" ? (
                   `Showing ${jobsData.length} of ${jobsPagination.totalCount} jobs`
+                ) : activeTab === "candidates-cache" ? (
+                  `Showing ${candidatesCacheResult.results.length} cached candidates`
+                ) : (
+                  `Showing ${jobsCacheResult.results.length} cached jobs`
                 )}
               </div>
             </div>
@@ -195,6 +240,34 @@ export default function ImportPage() {
               onPageChange={(page, perPage) => loadJobs(page, perPage)}
             />
           </TabsContent>
+
+          <TabsContent value="candidates-cache" className="m-0">
+            <CandidatesCacheTable
+              data={candidatesCacheResult.results}
+              isLoading={candidatesCacheResult.isLoading}
+              pagination={{
+                isDone: candidatesCacheResult.status === "Exhausted",
+                continueCursor: candidatesCacheResult.status
+              }}
+              selectedIds={selectedCacheCandidateIds}
+              onSelectionChange={setSelectedCacheCandidateIds}
+              onLoadMore={() => candidatesCacheResult.loadMore(25)}
+            />
+          </TabsContent>
+
+          <TabsContent value="jobs-cache" className="m-0">
+            <JobsCacheTable
+              data={jobsCacheResult.results}
+              isLoading={jobsCacheResult.isLoading}
+              pagination={{
+                isDone: jobsCacheResult.status === "Exhausted",
+                continueCursor: jobsCacheResult.status
+              }}
+              selectedIds={selectedCacheJobIds}
+              onSelectionChange={setSelectedCacheJobIds}
+              onLoadMore={() => jobsCacheResult.loadMore(25)}
+            />
+          </TabsContent>
         </Tabs>
       </Card>
 
@@ -203,6 +276,8 @@ export default function ImportPage() {
         onOpenChange={setShowImportDialog}
         selectedCandidateIds={selectedCandidateIds}
         selectedJobIds={selectedJobIds}
+        selectedCacheCandidateIds={selectedCacheCandidateIds}
+        selectedCacheJobIds={selectedCacheJobIds}
         onImportComplete={handleImportComplete}
       />
     </div>

@@ -7,6 +7,7 @@ import {
 } from "./_generated/server";
 import { v } from "convex/values";
 import { TeamtailorCandidate, TeamtailorJob } from "./types";
+import { paginationOptsValidator } from "convex/server";
 
 const baseApiUrl = process.env.TEAMTAILOR_BASE_URL || "https://api.teamtailor.com/v1";
 const xameraTeamtailorId = "Epgs55TVBkQ"
@@ -396,6 +397,7 @@ export const upsertJobTTCacheRow = internalMutation({
         teamtailorId: v.string(),
         title: v.string(),
         body: v.string(),
+        internalName: v.string(),
         updatedAt: v.number(),
         createdAt: v.number(),
     },
@@ -413,6 +415,7 @@ export const upsertJobTTCacheRow = internalMutation({
             teamtailorId: args.teamtailorId,
             title: args.title,
             body: args.body,
+            internalName: args.internalName,
             updatedAt: args.updatedAt,
             createdAt: args.createdAt,
         });
@@ -486,7 +489,7 @@ export const listJobsFromTeamtailor = action({
                 department: job.attributes.department,
                 bodyLength: job.attributes.body.length,
                 location: job.attributes.location,
-                updatedAt: Date.parse(job.attributes["updated-at"]),
+                updatedAtTT: Date.parse(job.attributes["updated-at"]),
                 createdAtTT: Date.parse(job.attributes["created-at"]),
                 link: baseWebUrl + "/jobs/" + job.id,
             };
@@ -509,17 +512,75 @@ export const listJobsFromTeamtailor = action({
 
 
 export const listCandidatesTTCache = query({
-    args: {},
+    args: {
+        paginationOpts: paginationOptsValidator,
+        search: v.optional(v.string()),
+        hasAssessment: v.optional(v.boolean()),
+        hasHubert: v.optional(v.boolean()),
+        hasResumeSummary: v.optional(v.boolean()),
+        hasLinkedinSummary: v.optional(v.boolean()),
+    },
     handler: async (ctx, args) => {
-        const candidates = await ctx.db.query("candidateTTCache").collect();
-        return candidates;
+        const { paginationOpts, search, hasAssessment, hasHubert, hasResumeSummary, hasLinkedinSummary } = args;
+        
+        // Apply search filter if provided
+        if (search && search.trim() !== "") {
+            let query = ctx.db.query("candidateTTCache").withSearchIndex("by_name", (q) => q.search("name", search));
+            
+            // Apply boolean filters
+            if (hasAssessment !== undefined) {
+                query = query.filter((q) => q.eq(q.field("hasAssessment"), hasAssessment));
+            }
+            if (hasHubert !== undefined) {
+                query = query.filter((q) => q.eq(q.field("hasHubert"), hasHubert));
+            }
+            if (hasResumeSummary !== undefined) {
+                query = query.filter((q) => q.eq(q.field("hasResumeSummary"), hasResumeSummary));
+            }
+            if (hasLinkedinSummary !== undefined) {
+                query = query.filter((q) => q.eq(q.field("hasLinkedinSummary"), hasLinkedinSummary));
+            }
+            
+            return await query.paginate(paginationOpts);
+        }
+        
+        // No search - use regular query with filters
+        let query = ctx.db.query("candidateTTCache");
+        
+        // Apply boolean filters
+        if (hasAssessment !== undefined) {
+            query = query.filter((q) => q.eq(q.field("hasAssessment"), hasAssessment));
+        }
+        if (hasHubert !== undefined) {
+            query = query.filter((q) => q.eq(q.field("hasHubert"), hasHubert));
+        }
+        if (hasResumeSummary !== undefined) {
+            query = query.filter((q) => q.eq(q.field("hasResumeSummary"), hasResumeSummary));
+        }
+        if (hasLinkedinSummary !== undefined) {
+            query = query.filter((q) => q.eq(q.field("hasLinkedinSummary"), hasLinkedinSummary));
+        }
+        
+        return await query.order("desc").paginate(paginationOpts);
     },
 });
 
 export const listJobsTTCache = query({
-    args: {},
+    args: {
+        paginationOpts: paginationOptsValidator,
+        search: v.optional(v.string()),
+    },
     handler: async (ctx, args) => {
-        const jobs = await ctx.db.query("jobTTCache").collect();
-        return jobs;
+        const { paginationOpts, search } = args;
+        
+        // Apply search filter if provided
+        if (search && search.trim() !== "") {
+            const query = ctx.db.query("jobTTCache").withSearchIndex("by_title", (q) => q.search("title", search));
+            return await query.paginate(paginationOpts);
+        }
+        
+        // No search - use regular query
+        const query = ctx.db.query("jobTTCache");
+        return await query.order("desc").paginate(paginationOpts);
     },
 });

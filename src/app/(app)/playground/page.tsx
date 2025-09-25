@@ -24,7 +24,7 @@ import { CandidateSearch } from "@/components/playground/candidate-search";
 import { JobSearch } from "@/components/playground/job-search";
 import { Input } from "@/components/ui/input";
 import { Icons } from "@/components/icons";
-import { models } from "../../../../convex/matches";
+import { models } from "@/config/models";
 import { timeAgo } from "@/lib/format";
 import { 
   Context, 

@@ -3,7 +3,7 @@
 import { useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Id } from "@/lib/convex";
-import { ProgressToast } from "@/components/ui/progress-toast";
+import { TaskToast } from "@/components/ui/task-toast";
 import { toast } from "sonner";
 
 export function useProgressToast() {
@@ -28,9 +28,9 @@ export function useProgressToast() {
       toastIds.current.delete(taskKey);
     };
 
-    // Create a new toast with the progress component
+    // Create a new toast with the task component
     const toastId = toast(
-      <ProgressToast 
+      <TaskToast 
         taskId={taskId} 
         title={title} 
         toastId={taskKey}

@@ -111,7 +111,7 @@ export interface TeamtailorJobAttributes {
   "external-application-url": string | null;
   "human-status": string;
   internal: boolean;
-  "internal-name": string | null;
+  "internal-name": string;
   "language-code": string;
   mailbox: string;
   "name-requirement": string;

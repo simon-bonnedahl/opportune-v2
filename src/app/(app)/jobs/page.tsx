@@ -220,7 +220,7 @@ function JobDialog({ id, onClose, showProgressToast }: { id: Id<"jobs">; onClose
               <Avatar className="size-10">
                 <AvatarFallback className="text-[11px]">{initials || "?"}</AvatarFallback>
               </Avatar>
-              <DialogTitle className="text-base font-semibold leading-none">{job?.title}</DialogTitle>
+              <DialogTitle className="text-base font-semibold leading-none">{job?.title ?? job?.teamtailorTitle}</DialogTitle>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-3 text-xs">
@@ -349,8 +349,8 @@ function JobDialog({ id, onClose, showProgressToast }: { id: Id<"jobs">; onClose
                     <div className="space-y-2">
                       <div className="font-medium">Soft Skills</div>
                       <div className="flex flex-wrap gap-2">
-                        {profile.softSkills.map((skill: { name: string; score: number }, i: number) => (
-                          <Badge key={i} variant="outline" className="px-2 py-1">{skill?.name}{typeof skill?.score === "number" ? ` (${skill.score})` : ""}</Badge>
+                        {profile.softSkills.map((skill, i: number) => (
+                          <Badge key={i} variant="outline" className="px-2 py-1">{skill}</Badge>
                         ))}
                       </div>
                     </div>

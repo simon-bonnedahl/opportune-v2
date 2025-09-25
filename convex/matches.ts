@@ -1,94 +1,25 @@
 import { cosineSimilarity, embedMany, generateObject, generateText, LanguageModel } from 'ai';
 import { query, mutation, internalMutation, action, internalAction } from './_generated/server';
-import { v } from 'convex/values';
+import { paginationOptsValidator } from 'convex/server';
+import { ConvexError, v } from 'convex/values';
 import { Id } from './_generated/dataModel';
 import { enqueueTask } from './tasks';
+import { models } from '../src/config/models';
 import { openai } from '@ai-sdk/openai';
-import { google } from '@ai-sdk/google'; 
-import { anthropic } from '@ai-sdk/anthropic';
-import { xai } from '@ai-sdk/xai';
 import { z } from 'zod';
-export const models = [
-  {
-    name: "GPT-5",
-    id: "gpt-5",
-    model: openai('gpt-5'),
-    provider: "OpenAI",
-  },
-  {
-    name: "GPT-5 Mini",
-    id: "gpt-5-mini",
-    model: openai('gpt-5-mini'),
-    provider: "OpenAI",
-  },
-  {
-    name: "GPT-5 Nano",
-    id: "gpt-5-nano",
-    model: openai('gpt-5-nano'),
-    provider: "OpenAI",
-  },
-  {
-    name: "GPT-4o",
-    id: "gpt-4o",
-    model: openai('gpt-4o'),
-    provider: "OpenAI",
-  },
-  {
-    name: "Gemini 2.5 Pro",
-    id: "gemini-2.5-pro",
-    model: google('gemini-2.5-pro'),
-    provider: "Google",
-  },
-  {
-    name: "Gemini 2.5 Flash",
-    id: "gemini-2.5-flash",
-    model: google('gemini-2.5-flash'),
-    provider: "Google",
-  },
-  {
-    name: "Gemini 2.5 Flash-Lite",
-    id: "gemini-2.5-flash-lite",
-    model: google('gemini-2.5-flash-lite'),
-    provider: "Google",
-  },
-
-  {
-    name: "Claude 4 Sonnet",
-    id: "claude-sonnet-4-20250514",
-    model: anthropic('claude-sonnet-4-20250514'),
-    provider: "Anthropic",
-  },
-  {
-    name: "Claude 4 Opus",
-    id: "claude-opus-4-20250514",
-    model: anthropic('claude-opus-4-20250514'),
-    provider: "Anthropic",
-  },
-  {
-    name: "Grok 4",
-    id: "grok-4",
-    model: xai('grok-4'),
-    provider: "xAI",
-  },
-  {
-    name: "Grok 4 Fast Reasoning",
-    id: "grok-4-fast-reasoning",
-    model: xai('grok-4-fast-reasoning'),
-    provider: "xAI",
-  },
-  {
-    name: "Grok 3",
-    id: "grok-3",
-    model: xai('grok-3'),
-    provider: "xAI",
-  }
-
-]
 const getModel = (modelId: string) => {
   return models.find((m) => m.id === modelId)?.model;
 }
 const getProvider = (modelId: string) => {
   return models.find((m) => m.id === modelId)?.provider;
+}
+
+const checkIfModelIsEnabled = (modelId: string) => {
+  const model = models.find((m) => m.id === modelId);
+  if (!model) {
+    throw new Error(`Model '${modelId}' not found`);
+  }
+  return model.enabled;
 }
 //Helpers
 const getEmbeddingSection = (embeddings: any[], section: string) => {
@@ -277,8 +208,8 @@ export const getSectionDetails = query({
                 isArray: true,
             },
             soft_skills: {
-                job: jobProfile.softSkills.map(skill => skill.name),
-                candidate: candidateProfile.softSkills.map(skill => skill.name),
+                job: jobProfile.softSkills,
+                candidate: candidateProfile.softSkills,
                 isArray: true,
             },
             education: {
@@ -330,6 +261,137 @@ export const getPreviousMatches = query({
     }
 });
 
+// Get available models for a candidate's matches
+export const getCandidateModels = query({
+    args: {
+        candidateId: v.id("candidates"),
+    },
+    handler: async (ctx, { candidateId }) => {
+        const matches = await ctx.db.query("matches")
+            .withIndex("by_candidate", (q) => q.eq("candidateId", candidateId))
+            .collect();
+        
+        // Get unique models
+        const uniqueModels = [...new Set(matches.map(match => match.model))];
+        return uniqueModels.sort();
+    }
+});
+
+// Get matches for a specific candidate with pagination, search, and filtering
+export const getCandidateMatches = query({
+    args: {
+        candidateId: v.id("candidates"),
+        paginationOpts: paginationOptsValidator,
+        search: v.optional(v.string()),
+        sortBy: v.optional(v.union(v.literal("score"), v.literal("updatedAt"), v.literal("jobTitle"))),
+        sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+        minScore: v.optional(v.number()),
+        maxScore: v.optional(v.number()),
+        model: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const { candidateId, paginationOpts, search, sortBy = "score", sortOrder = "desc", minScore, maxScore, model } = args;
+        
+        // Start with matches for this candidate
+        let query = ctx.db.query("matches").withIndex("by_candidate", (q) => q.eq("candidateId", candidateId));
+        
+        // Apply filters
+        if (minScore !== undefined || maxScore !== undefined) {
+            query = query.filter((q) => {
+                let scoreFilter = q.gte(q.field("score"), minScore ?? 0);
+                if (maxScore !== undefined) {
+                    scoreFilter = q.and(scoreFilter, q.lte(q.field("score"), maxScore));
+                }
+                return scoreFilter;
+            });
+        }
+        
+        if (model) {
+            query = query.filter((q) => q.eq(q.field("model"), model));
+        }
+        
+        // Note: The query is already ordered by the index by_candidate
+        // For now, we'll sort in memory after pagination
+        // TODO: Add proper indexes for different sorting options
+        
+        // Get paginated results
+        const paginatedResults = await query.paginate(paginationOpts);
+        
+        // Apply in-memory sorting
+        let sortedResults = paginatedResults;
+        if (sortBy === "score" || sortBy === "updatedAt") {
+            sortedResults = {
+                ...paginatedResults,
+                page: [...paginatedResults.page].sort((a, b) => {
+                    const aValue = sortBy === "score" ? a.score : a.updatedAt;
+                    const bValue = sortBy === "score" ? b.score : b.updatedAt;
+                    return sortOrder === "asc" ? aValue - bValue : bValue - aValue;
+                })
+            };
+        }
+        
+        // If search is provided, we need to filter by job title after pagination
+        // This is not ideal but necessary since we can't easily join tables in Convex
+        let filteredResults = sortedResults;
+        
+        if (search && search.trim()) {
+            const searchLower = search.toLowerCase().trim();
+            
+            // Get all jobs to filter by title
+            const allJobs = await ctx.db.query("jobs").collect();
+            const jobTitleMap = new Map(allJobs.map(job => [job._id, (job.title || job.teamtailorTitle || "").toLowerCase()]));
+            
+            // Filter matches based on job title
+            const filteredPage = paginatedResults.page.filter(match => {
+                const jobTitle = jobTitleMap.get(match.jobId) || "";
+                return jobTitle.includes(searchLower);
+            });
+            
+            filteredResults = {
+                ...paginatedResults,
+                page: filteredPage,
+                isDone: true, // Since we're filtering client-side, we can't guarantee pagination
+            };
+        }
+        
+        // Enrich matches with job and candidate data
+        const enrichedMatches = await Promise.all(
+            filteredResults.page.map(async (match) => {
+                const job = await ctx.db.get(match.jobId);
+                const candidate = await ctx.db.get(match.candidateId);
+                
+                // Get company name if companyId exists
+                let companyName = null;
+                if (job?.companyId) {
+                    const company = await ctx.db.get(job.companyId);
+                    companyName = company?.name;
+                }
+                
+                return {
+                    ...match,
+                    job: job ? {
+                        _id: job._id,
+                        title: job.title || job.teamtailorTitle,
+                        company: companyName,
+                        locations: job.locations,
+                        _creationTime: job._creationTime,
+                    } : null,
+                    candidate: candidate ? {
+                        _id: candidate._id,
+                        name: candidate.name,
+                        _creationTime: candidate._creationTime,
+                    } : null,
+                };
+            })
+        );
+        
+        return {
+            ...filteredResults,
+            page: enrichedMatches,
+        };
+    }
+});
+
 
 const MATCH_PROMPT = `
 You are an expert candidate–job matching engine.
@@ -371,6 +433,9 @@ export const match = internalAction({
   args: { candidateProfile: v.any(), jobProfile: v.any(), scoringGuidelines: v.string(), model: v.string() },
   handler: async (ctx, args) => {
     const { candidateProfile, jobProfile, scoringGuidelines } = args;
+    if (!checkIfModelIsEnabled(args.model)) {
+      throw new ConvexError(`Model '${args.model}' is disabled by admin`);
+    }
     const model = getModel(args.model) ?? openai('gpt-5');
     const provider = getProvider(args.model) ?? "OpenAI";
     const prompt = MATCH_PROMPT.replace("{{scoringGuidelines}}", scoringGuidelines).replace("{{candidateProfile}}", JSON.stringify(candidateProfile)).replace("{{jobProfile}}", JSON.stringify(jobProfile));

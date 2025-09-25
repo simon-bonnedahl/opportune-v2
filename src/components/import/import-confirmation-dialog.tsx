@@ -22,6 +22,8 @@ interface ImportConfirmationDialogProps {
   onOpenChange: (open: boolean) => void;
   selectedCandidateIds: string[];
   selectedJobIds: string[];
+  selectedCacheCandidateIds: string[];
+  selectedCacheJobIds: string[];
   onImportComplete: () => void;
 }
 
@@ -30,6 +32,8 @@ export function ImportConfirmationDialog({
   onOpenChange,
   selectedCandidateIds,
   selectedJobIds,
+  selectedCacheCandidateIds,
+  selectedCacheJobIds,
   onImportComplete,
 }: ImportConfirmationDialogProps) {
   const [isImporting, setIsImporting] = useState(false);
@@ -57,6 +61,20 @@ export function ImportConfirmationDialog({
         );
       }
 
+      if (selectedCacheCandidateIds.length > 0) {
+        promises.push(
+          importCandidates({ teamtailorIds: selectedCacheCandidateIds })
+            .then(() => toast.success(`Imported ${selectedCacheCandidateIds.length} cached candidates`))
+        );
+      }
+      
+      if (selectedCacheJobIds.length > 0) {
+        promises.push(
+          importJobs({ teamtailorIds: selectedCacheJobIds })
+            .then(() => toast.success(`Imported ${selectedCacheJobIds.length} cached jobs`))
+        );
+      }
+
       await Promise.all(promises);
       
       toast.success("Import completed successfully!");
@@ -69,7 +87,7 @@ export function ImportConfirmationDialog({
     }
   };
 
-  const totalItems = selectedCandidateIds.length + selectedJobIds.length;
+  const totalItems = selectedCandidateIds.length + selectedJobIds.length + selectedCacheCandidateIds.length + selectedCacheJobIds.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -107,6 +125,34 @@ export function ImportConfirmationDialog({
               </div>
               <Badge variant="secondary">
                 {selectedJobIds.length}
+              </Badge>
+            </div>
+          )}
+
+          {selectedCacheCandidateIds.length > 0 && (
+            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              <div>
+                <p className="font-medium">Cached Candidates</p>
+                <p className="text-sm text-muted-foreground">
+                  Will be processed and added to your database
+                </p>
+              </div>
+              <Badge variant="secondary">
+                {selectedCacheCandidateIds.length}
+              </Badge>
+            </div>
+          )}
+          
+          {selectedCacheJobIds.length > 0 && (
+            <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+              <div>
+                <p className="font-medium">Cached Jobs</p>
+                <p className="text-sm text-muted-foreground">
+                  Will be processed and added to your database
+                </p>
+              </div>
+              <Badge variant="secondary">
+                {selectedCacheJobIds.length}
               </Badge>
             </div>
           )}

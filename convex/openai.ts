@@ -20,7 +20,7 @@ The candidate profile should be a JSON object with the following fields:
 - summary: a summary of the candidate's profile, dont use the canidates name in the summary
 - education: an array of the candidate's education (include degree type, field of study, university, graduation year if available)
 - technicalSkills: an array of the candidate's technical skills with a score between 1 and 5
-- softSkills: an array of the candidate's soft skills with a score between 1 and 5
+- softSkills: an array of the candidate's soft skills.
 - workExperience: an array of the candidate's work experience
 - aspirations: an array of the candidate's aspirations
 - preferences: an array of the candidate's preferences
@@ -44,7 +44,7 @@ The candidate profile should be in the following format:
   "summary": "string",
   "education": ["string"],
   "technicalSkills": [{"name": "string", "score": "number"}],
-  "softSkills": [{"name": "string", "score": "number"}],
+  "softSkills": ["string"],
   "workExperience": ["string"],
   "aspirations": ["string"],
   "preferences": ["string"],
@@ -60,7 +60,7 @@ type CandidateProfile = {
   description: string;
   education: string[];
   technicalSkills: { name: string; score: number }[];
-  softSkills: { name: string; score: number }[];
+  softSkills: string[];
   workExperience: string[];
   preferences: string[];
   aspirations: string[];
@@ -72,7 +72,7 @@ export const buildCandidateProfile = internalAction({
   args: { hubertAnswers: v.optional(v.string()), resumeSummary: v.optional(v.string()), assessment: v.optional(v.any()), linkedinSummary: v.optional(v.string()) },
   handler: async (ctx, { hubertAnswers, resumeSummary, assessment, linkedinSummary }) => {
 
-    const prompt = BUILD_CANDIDATE_PROFILE_PROMPT.replace("{{hubertAnswers}}", hubertAnswers ?? "None").replace("{{resumeSummary}}", resumeSummary ?? "None").replace("{{assessment}}", assessment.comment ?? "None").replace("{{linkedinSummary}}", linkedinSummary ?? "None");
+    const prompt = BUILD_CANDIDATE_PROFILE_PROMPT.replace("{{hubertAnswers}}", hubertAnswers ?? "None").replace("{{resumeSummary}}", resumeSummary ?? "None").replace("{{assessment}}", assessment?.comment ?? "None").replace("{{linkedinSummary}}", linkedinSummary ?? "None");
     //TODO: Maybe change to generateObject
     const model : LanguageModel = openai('gpt-5')
     const { text, totalUsage } = await generateText({
@@ -96,7 +96,7 @@ The job profile should be a JSON object with the following fields:
 - summary: a summary of the job and its main responsibilities
 - education: an array of required or preferred education/degree fields (be specific about degree types and fields of study)
 - technicalSkills: an array of required or meriting technical skills with a score between 1 and 5 (5 = must-have, 1 = nice-to-have)
-- softSkills: an array of required or meriting soft skills with a score between 1 and 5 (5 = must-have, 1 = nice-to-have)
+- softSkills: an array of required or meriting soft skills
 - workTasks: an array of main work tasks and responsibilities
 - aspirations: an array of opportunities or growth paths the job offers
 - preferences: an array of preferences or requirements (e.g., location, start date, industry, work environment)
@@ -111,7 +111,7 @@ The job profile should be in the following format:
   "summary": "string",
   "education": ["string"],
   "technicalSkills": [{"name": "string", "score": "number"}],
-  "softSkills": [{"name": "string", "score": "number"}],
+  "softSkills": ["string"],
   "workTasks": ["string"],
   "aspirations": ["string"],
   "preferences": ["string"],
@@ -128,7 +128,7 @@ type JobProfile = {
   summary: string;
   education: string[];
   technicalSkills: { name: string; score: number }[];
-  softSkills: { name: string; score: number }[];
+  softSkills: string[];
   workTasks: string[];
   aspirations: string[];
   preferences: string[];

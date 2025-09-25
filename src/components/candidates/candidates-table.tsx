@@ -115,8 +115,8 @@ export function CandidatesTable({
           <Image
             src="/images/linkedin_logo.png"
             alt="Linkedin"
-            width={16}
-            height={16}
+            width={100}
+            height={100}
             className="size-5 rounded-full"
           />
         )}

@@ -65,9 +65,12 @@ export async function getHubertOpenSummaryUrl(teamtailorId: string, maxRetries: 
     }
     for (const partnerResult of responseJson.data) {
         if(partnerResult.attributes["partner-name"].toLowerCase() === "hubert.ai") {
-            for (const attachment of partnerResult.attributes.attachments) {
-                if(attachment.description === "Open Application Summary" && attachment.url) {
-                    return attachment.url;
+            const attachments = partnerResult.attributes.attachments;
+            if (attachments && Array.isArray(attachments)) {
+                for (const attachment of attachments) {
+                    if(attachment.description === "Open Application Summary" && attachment.url) {
+                        return attachment.url;
+                    }
                 }
             }
         }

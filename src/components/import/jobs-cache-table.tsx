@@ -2,45 +2,52 @@
 
 import { format } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { TeamTailorJob } from "@/types/teamtailor";
+import { Id } from "../../../../convex/_generated/dataModel";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import Image from "next/image";
 
+type JobTTCache = {
+  _id: Id<"jobTTCache">;
+  teamtailorId: string;
+  jobId?: Id<"jobs">;
+  title: string;
+  internalName: string;
+  body: string;
+  updatedAt: number;
+  createdAt: number;
+};
 
-interface JobsTableProps {
-  data: TeamTailorJob[];
+interface JobsCacheTableProps {
+  data: JobTTCache[];
   isLoading?: boolean;
   pagination: {
-    currentPage: number;
-    perPage: number;
-    totalPages: number;
-    totalCount: number;
-    hasNext: boolean;
-    hasPrev: boolean;
+    isDone: boolean;
+    continueCursor?: string;
   };
   onSelectionChange: (selectedIds: string[]) => void;
   selectedIds: string[];
-  onPageChange: (page: number, perPage: number, sort?: string) => void;
+  onLoadMore: () => void;
 }
 
-export function JobsTable({ 
+export function JobsCacheTable({ 
   data, 
   isLoading = false, 
   pagination,
   onSelectionChange, 
   selectedIds,
-  onPageChange
-}: JobsTableProps) {
+  onLoadMore
+}: JobsCacheTableProps) {
   const allSelected = data.length > 0 && selectedIds.length === data.length;
   const someSelected = selectedIds.length > 0 && selectedIds.length < data.length;
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const allIds = data.map((job) => job.id);
+      const allIds = data.map((job) => job.teamtailorId);
       onSelectionChange(allIds);
     } else {
       onSelectionChange([]);
@@ -85,9 +92,6 @@ export function JobsTable({
 
   return (
     <div className="flex flex-col h-[75vh]">
-      {/* Job count display */}
- 
-
       <div className="flex-1 overflow-y-auto">
         <Table className="w-full">
           <TableHeader className="sticky top-0 z-10">
@@ -116,16 +120,16 @@ export function JobsTable({
             ) : data.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  No jobs found
+                  No cached jobs found
                 </TableCell>
               </TableRow>
             ) : (
               data.map((job) => (
-                <TableRow key={job.id} className="hover:bg-muted/50">
+                <TableRow key={job._id} className="hover:bg-muted/50">
                   <TableCell className="w-12">
                     <Checkbox
-                      checked={selectedIds.includes(job.id)}
-                      onCheckedChange={(checked) => handleSelectJob(job.id, !!checked)}
+                      checked={selectedIds.includes(job.teamtailorId)}
+                      onCheckedChange={(checked) => handleSelectJob(job.teamtailorId, !!checked)}
                       aria-label={`Select ${job.title}`}
                     />
                   </TableCell>
@@ -142,20 +146,20 @@ export function JobsTable({
                     </div>
                   </TableCell>
                   <TableCell className="text-right w-24 text-sm font-medium">
-                    {job.bodyLength}
+                    {job.body.length}
                   </TableCell>
                   <TableCell className="text-right w-32 text-sm text-muted-foreground">
-                    {format(new Date(job.updatedAtTT), "MMM dd, yyyy")}
+                    {format(new Date(job.updatedAt), "MMM dd, yyyy")}
                   </TableCell>
                   <TableCell className="text-right w-32 text-sm text-muted-foreground">
-                    {format(new Date(job.createdAtTT), "MMM dd, yyyy")}
+                    {format(new Date(job.createdAt), "MMM dd, yyyy")}
                   </TableCell>
                   <TableCell className="w-16 text-right">
                     <Button
                       className="hover:cursor-pointer hover:scale-105 transition-all duration-300"
                       variant="link"
                       size="icon"
-                      onClick={() => window.open(job.link, "_blank")}
+                      onClick={() => window.open(`https://app.teamtailor.com/companies/Epgs55TVBkQ/jobs/${job.teamtailorId}`, "_blank")}
                     >
                       <Image
                         src="/images/teamtailor_logo.png"
@@ -176,31 +180,24 @@ export function JobsTable({
       <div className="flex-shrink-0 border-t">
         <div className="flex items-center justify-center p-4">
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(pagination.currentPage - 1, pagination.perPage)}
-              disabled={!pagination.hasPrev || isLoading}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            
-            <div className="text-sm text-muted-foreground px-4">
-              Page {pagination.currentPage} of {pagination.totalPages}
-            </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onPageChange(pagination.currentPage + 1, pagination.perPage)}
-              disabled={!pagination.hasNext || isLoading}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+            {!pagination.isDone && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onLoadMore}
+                disabled={isLoading}
+              >
+                {isLoading ? "Loading..." : "Load More"}
+              </Button>
+            )}
+            {pagination.isDone && data.length > 0 && (
+              <div className="text-sm text-muted-foreground">
+                All {data.length} cached jobs loaded
+              </div>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
 }
-

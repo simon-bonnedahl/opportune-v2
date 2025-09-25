@@ -1,5 +1,5 @@
 import { action, ActionCtx, internalAction, internalMutation, mutation, query } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal, api } from "./_generated/api";
 import { getWorkpoolForTaskType } from "./workpools";
 import { taskStatus, taskType, TaskType } from "./types";
@@ -185,15 +185,11 @@ export const task_tt_sync = internalAction({
     let progress = 50;
     for (let i = 0; i < jobs.length; i++) {
       const job = jobs[i];
-      await ctx.runMutation(internal.teamtailor.upsertJobTTCacheRow, { teamtailorId: job.id, updatedAt: Date.parse(job.attributes["updated-at"]), createdAt: Date.parse(job.attributes["created-at"]), title: job.attributes.title, body: job.attributes.body });
-
-
+      await ctx.runMutation(internal.teamtailor.upsertJobTTCacheRow, { teamtailorId: job.id, updatedAt: Date.parse(job.attributes["updated-at"]), createdAt: Date.parse(job.attributes["created-at"]), title: job.attributes.title, body: job.attributes.body, internalName: job.attributes["internal-name"] });
 
       progress = 50 + Math.round(i * (50 / jobs.length));
       await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress });
     }
-  
-
 
     } catch (error) {
       await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when syncing jobs" });
@@ -276,11 +272,12 @@ export const task_tt_import = internalAction({
       try {
         //Step 1: import job
         const job = await ctx.runAction(internal.teamtailor.importJob, { teamtailorId });
+        console.log(job);
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 10, progressMessage: "Job with id " + teamtailorId + " imported" });
 
         //TOD: what if the job has no company name?
         //Step 2: connect or create company
-        const companyId = await ctx.runMutation(internal.companies.connectOrCreate, { name: job.companyName });
+        const companyId = await ctx.runMutation(internal.companies.connectOrCreate, { name: job.companyName ?? "Unknown" });
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "running", progress: 30, progressMessage: "Connected or created company with id " + companyId });
 
         //Step 2: create job record
@@ -448,7 +445,7 @@ export const task_embed_profile = internalAction({
         const textsToEmbed = [
           candidateProfile.summary,
           candidateProfile.technicalSkills.map((skill) => skill.name).join(", "),
-          candidateProfile.softSkills.map((skill) => skill.name).join(", "),
+          candidateProfile.softSkills.join(", "),
           candidateProfile.education.join(". "), // Use period separation for better semantic parsing
           candidateProfile.workExperience.join(". "), // Use period separation for better semantic parsing
           candidateProfile.preferences.join(", "),
@@ -499,7 +496,7 @@ export const task_embed_profile = internalAction({
         const textsToEmbed = [
           jobProfile.summary,
           jobProfile.technicalSkills.map((skill) => skill.name).join(", "),
-          jobProfile.softSkills.map((skill) => skill.name).join(", "),
+          jobProfile.softSkills.join(", "),
           jobProfile.education.join(". "), // Use period separation for better semantic parsing
           jobProfile.workTasks.join(". "), // Use period separation for better semantic parsing
           jobProfile.preferences.join(", "),
@@ -519,7 +516,7 @@ export const task_embed_profile = internalAction({
         await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "succeeded", progress: 100, stoppedAt: Date.now(), progressMessage: "Created job embeddings" });
         return { success: true, message: "Job profile with id " + id + "embedded" };
       } catch (error) {
-        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof Error ? error.message : "Unknown error occurred when embedding job profile" });
+        await ctx.runMutation(internal.tasks.updateTask, { taskId, status: "failed", stoppedAt: Date.now(), errorMessage: error instanceof ConvexError ? JSON.stringify(error) : "Unknown error occurred when embedding job profile" });
         return { success: false, message: "Job profile with id " + id + "could not be embedded" };
       }
     }
