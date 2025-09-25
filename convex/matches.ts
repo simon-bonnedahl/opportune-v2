@@ -261,6 +261,7 @@ export const getPreviousMatches = query({
     }
 });
 
+
 // Get available models for a candidate's matches
 export const getCandidateModels = query({
     args: {
@@ -274,6 +275,117 @@ export const getCandidateModels = query({
         // Get unique models
         const uniqueModels = [...new Set(matches.map(match => match.model))];
         return uniqueModels.sort();
+    }
+});
+
+// Get available models for a job's matches
+export const getJobModels = query({
+    args: {
+        jobId: v.id("jobs"),
+    },
+    handler: async (ctx, { jobId }) => {
+        const matches = await ctx.db.query("matches")
+            .withIndex("by_job", (q) => q.eq("jobId", jobId))
+            .collect();
+        
+        const uniqueModels = [...new Set(matches.map(match => match.model))];
+        return uniqueModels.sort();
+    }
+});
+
+// Get matches for a specific job with pagination, search, and filtering
+export const getJobMatches = query({
+    args: {
+        jobId: v.id("jobs"),
+        paginationOpts: paginationOptsValidator,
+        search: v.optional(v.string()),
+        sortBy: v.optional(v.union(v.literal("score"), v.literal("updatedAt"), v.literal("candidateName"))),
+        sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+        minScore: v.optional(v.number()),
+        maxScore: v.optional(v.number()),
+        model: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const { jobId, paginationOpts, search, sortBy = "score", sortOrder = "desc", minScore, maxScore, model } = args;
+        
+        // Start with matches for this job
+        let query = ctx.db.query("matches").withIndex("by_job", (q) => q.eq("jobId", jobId));
+        
+        // Apply filters
+        if (minScore !== undefined || maxScore !== undefined) {
+            query = query.filter((q) => {
+                let scoreFilter = q.gte(q.field("score"), minScore ?? 0);
+                if (maxScore !== undefined) {
+                    scoreFilter = q.and(scoreFilter, q.lte(q.field("score"), maxScore));
+                }
+                return scoreFilter;
+            });
+        }
+        
+        if (model) {
+            query = query.filter((q) => q.eq(q.field("model"), model));
+        }
+        
+        // Get ALL matches first for proper sorting
+        const allMatches = await query.collect();
+        
+        // Get candidate names for search filtering
+        let filteredMatches = allMatches;
+        if (search && search.trim()) {
+            const searchLower = search.toLowerCase().trim();
+            const allCandidates = await ctx.db.query("candidates").collect();
+            const candidateNameMap = new Map(allCandidates.map(candidate => [candidate._id, (candidate.name || "").toLowerCase()]));
+            
+            filteredMatches = allMatches.filter(match => {
+                const candidateName = candidateNameMap.get(match.candidateId) || "";
+                return candidateName.includes(searchLower);
+            });
+        }
+        
+        // Apply sorting to ALL filtered matches
+        let sortedMatches = filteredMatches;
+        if (sortBy === "score" || sortBy === "updatedAt") {
+            sortedMatches = [...filteredMatches].sort((a, b) => {
+                const aValue = sortBy === "score" ? a.score : a.updatedAt;
+                const bValue = sortBy === "score" ? b.score : b.updatedAt;
+                return sortOrder === "asc" ? aValue - bValue : bValue - aValue;
+            });
+        }
+        
+        // Apply manual pagination to sorted results
+        const startIndex = paginationOpts.cursor ? parseInt(paginationOpts.cursor) : 0;
+        const endIndex = startIndex + paginationOpts.numItems;
+        const paginatedMatches = sortedMatches.slice(startIndex, endIndex);
+        
+        // Enrich matches with job and candidate details
+        const enrichedMatches = await Promise.all(
+            paginatedMatches.map(async (match) => {
+                const job = await ctx.db.get(match.jobId);
+                const candidate = await ctx.db.get(match.candidateId);
+                
+                return {
+                    ...match,
+                    job: job ? {
+                        _id: job._id,
+                        title: job.title || job.teamtailorTitle,
+                        companyId: job.companyId,
+                        locations: job.locations,
+                        _creationTime: job._creationTime,
+                    } : null,
+                    candidate: candidate ? {
+                        _id: candidate._id,
+                        name: candidate.name,
+                        _creationTime: candidate._creationTime,
+                    } : null,
+                };
+            })
+        );
+        
+        return {
+            page: enrichedMatches,
+            isDone: endIndex >= sortedMatches.length,
+            continueCursor: endIndex < sortedMatches.length ? endIndex.toString() : null,
+        };
     }
 });
 
@@ -310,53 +422,40 @@ export const getCandidateMatches = query({
             query = query.filter((q) => q.eq(q.field("model"), model));
         }
         
-        // Note: The query is already ordered by the index by_candidate
-        // For now, we'll sort in memory after pagination
-        // TODO: Add proper indexes for different sorting options
+        // Get ALL matches first for proper sorting
+        const allMatches = await query.collect();
         
-        // Get paginated results
-        const paginatedResults = await query.paginate(paginationOpts);
-        
-        // Apply in-memory sorting
-        let sortedResults = paginatedResults;
-        if (sortBy === "score" || sortBy === "updatedAt") {
-            sortedResults = {
-                ...paginatedResults,
-                page: [...paginatedResults.page].sort((a, b) => {
-                    const aValue = sortBy === "score" ? a.score : a.updatedAt;
-                    const bValue = sortBy === "score" ? b.score : b.updatedAt;
-                    return sortOrder === "asc" ? aValue - bValue : bValue - aValue;
-                })
-            };
-        }
-        
-        // If search is provided, we need to filter by job title after pagination
-        // This is not ideal but necessary since we can't easily join tables in Convex
-        let filteredResults = sortedResults;
-        
+        // Get job titles for search filtering
+        let filteredMatches = allMatches;
         if (search && search.trim()) {
             const searchLower = search.toLowerCase().trim();
-            
-            // Get all jobs to filter by title
             const allJobs = await ctx.db.query("jobs").collect();
             const jobTitleMap = new Map(allJobs.map(job => [job._id, (job.title || job.teamtailorTitle || "").toLowerCase()]));
             
-            // Filter matches based on job title
-            const filteredPage = paginatedResults.page.filter(match => {
+            filteredMatches = allMatches.filter(match => {
                 const jobTitle = jobTitleMap.get(match.jobId) || "";
                 return jobTitle.includes(searchLower);
             });
-            
-            filteredResults = {
-                ...paginatedResults,
-                page: filteredPage,
-                isDone: true, // Since we're filtering client-side, we can't guarantee pagination
-            };
         }
+        
+        // Apply sorting to ALL filtered matches
+        let sortedMatches = filteredMatches;
+        if (sortBy === "score" || sortBy === "updatedAt") {
+            sortedMatches = [...filteredMatches].sort((a, b) => {
+                const aValue = sortBy === "score" ? a.score : a.updatedAt;
+                const bValue = sortBy === "score" ? b.score : b.updatedAt;
+                return sortOrder === "asc" ? aValue - bValue : bValue - aValue;
+            });
+        }
+        
+        // Apply manual pagination to sorted results
+        const startIndex = paginationOpts.cursor ? parseInt(paginationOpts.cursor) : 0;
+        const endIndex = startIndex + paginationOpts.numItems;
+        const paginatedMatches = sortedMatches.slice(startIndex, endIndex);
         
         // Enrich matches with job and candidate data
         const enrichedMatches = await Promise.all(
-            filteredResults.page.map(async (match) => {
+            paginatedMatches.map(async (match) => {
                 const job = await ctx.db.get(match.jobId);
                 const candidate = await ctx.db.get(match.candidateId);
                 
@@ -386,8 +485,9 @@ export const getCandidateMatches = query({
         );
         
         return {
-            ...filteredResults,
             page: enrichedMatches,
+            isDone: endIndex >= sortedMatches.length,
+            continueCursor: endIndex < sortedMatches.length ? endIndex.toString() : null,
         };
     }
 });

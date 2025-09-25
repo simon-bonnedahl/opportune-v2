@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { RefreshCw, UserCog, Brain, Info, MoreHorizontal } from "lucide-react";
 import { api, Id } from "@/lib/convex";
 import Image from "next/image";
+import { models } from "@/config/models";
 
 function getInitials(name?: string) {
   if (!name) return "?";
@@ -65,14 +66,13 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
   const [matchesSearch, setMatchesSearch] = useState<string>("");
   const [matchesSortBy, setMatchesSortBy] = useState<"score" | "updatedAt" | "jobTitle">("score");
   const [matchesSortOrder, setMatchesSortOrder] = useState<"asc" | "desc">("desc");
-  const [matchesMinScore, setMatchesMinScore] = useState<number | undefined>(undefined);
   const [matchesModelFilter, setMatchesModelFilter] = useState<string>("all");
   const addCandidate = useAction(api.candidates.add);
   const rebuildProfile = useAction(api.candidates.rebuildProfile);
   const reembedProfile = useAction(api.candidates.reembedProfile);
   
-  // Get available models for this candidate's matches
-  const availableModels = useQuery(api.matches.getCandidateModels, { candidateId: id });
+  // Get all available models from config
+  const availableModels = models.filter(model => model.enabled).map(model => model.id);
   
   // Get matches with pagination
   const { results: matches, status: matchesStatus, loadMore } = usePaginatedQuery(
@@ -82,7 +82,6 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
       search: matchesSearch || undefined,
       sortBy: matchesSortBy,
       sortOrder: matchesSortOrder,
-      minScore: matchesMinScore,
       model: matchesModelFilter !== "all" ? matchesModelFilter : undefined,
     },
     { initialNumItems: 25 }
@@ -269,24 +268,10 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                       <SelectValue placeholder="Sort by..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="score-desc">Score (High to Low)</SelectItem>
-                      <SelectItem value="score-asc">Score (Low to High)</SelectItem>
-                      <SelectItem value="updatedAt-desc">Recently Updated</SelectItem>
-                      <SelectItem value="updatedAt-asc">Oldest Updated</SelectItem>
-                      <SelectItem value="jobTitle-asc">Job Title (A-Z)</SelectItem>
-                      <SelectItem value="jobTitle-desc">Job Title (Z-A)</SelectItem>
+                      <SelectItem value="score-desc">Score</SelectItem>
+                      <SelectItem value="updatedAt-desc">Match Time</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Input 
-                    placeholder="Min score (0-1)" 
-                    className="h-8 w-32" 
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={matchesMinScore || ""}
-                    onChange={(e) => setMatchesMinScore(e.target.value ? parseFloat(e.target.value) : undefined)}
-                  />
                   <Select
                     value={matchesModelFilter}
                     onValueChange={setMatchesModelFilter}
@@ -296,9 +281,34 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Models</SelectItem>
-                      {availableModels?.map((model) => (
-                        <SelectItem key={model} value={model}>{model}</SelectItem>
-                      ))}
+                      {availableModels && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">OpenAI</div>
+                          {availableModels.filter(model => 
+                            model === "gpt-5" || model === "gpt-5-mini" || model === "gpt-5-nano" || model === "gpt-4o"
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Google</div>
+                          {availableModels.filter(model => 
+                            model.startsWith("gemini")
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Anthropic</div>
+                          {availableModels.filter(model => 
+                            model.startsWith("claude")
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">xAI</div>
+                          {availableModels.filter(model => 
+                            model.startsWith("grok")
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -313,19 +323,18 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                       <th className="text-left p-2">% Score</th>
                       <th className="text-left p-2">Matched</th>
                       <th className="text-left p-2">Model</th>
-                      <th className="text-left p-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {matchesStatus === "LoadingFirstPage" ? (
                       <tr>
-                        <td colSpan={7} className="text-center p-4 text-muted-foreground">
+                        <td colSpan={6} className="text-center p-4 text-muted-foreground">
                           Loading matches...
                         </td>
                       </tr>
                     ) : matches.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="text-center p-4 text-muted-foreground">
+                        <td colSpan={6} className="text-center p-4 text-muted-foreground">
                           No matches found
                         </td>
                       </tr>
@@ -355,21 +364,6 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                             <Badge variant="outline" className="text-xs">
                               {match.model}
                             </Badge>
-                          </td>
-                          <td className="p-2">
-                            <div className="flex items-center gap-1">
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="h-6 w-6 p-0"
-                                onClick={() => {
-                                  // TODO: Implement match details view
-                                  console.log("View match details:", match._id);
-                                }}
-                              >
-                                <Info className="h-3 w-3" />
-                              </Button>
-                            </div>
                           </td>
                         </tr>
                       ))

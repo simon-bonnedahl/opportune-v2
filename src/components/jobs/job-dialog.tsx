@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useAction } from "convex/react";
+import { useQuery, useAction, usePaginatedQuery } from "convex/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,11 +10,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useProgressToast } from "@/hooks/use-progress-toast";
 import { toast } from "sonner";
 import { RefreshCw, UserCog, Brain, Info, MoreHorizontal } from "lucide-react";
 import { api, Id } from "@/lib/convex";
 import Image from "next/image";
+import { models } from "@/config/models";
 
 function getInitials(text?: string) {
   if (!text) return "?";
@@ -22,6 +24,20 @@ function getInitials(text?: string) {
   const first = parts[0]?.[0] ?? "";
   const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
   return (first + last).toUpperCase();
+}
+
+function formatTimeAgo(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return `${seconds}s ago`;
 }
 
 interface JobDialogProps {
@@ -39,10 +55,30 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
   const [isReimporting, setIsReimporting] = useState(false);
   const [isRebuilding, setIsRebuilding] = useState(false);
   const [isReembedding, setIsReembedding] = useState(false);
+  const [matchesSearch, setMatchesSearch] = useState<string>("");
+  const [matchesSortBy, setMatchesSortBy] = useState<"score" | "updatedAt" | "candidateName">("score");
+  const [matchesSortOrder, setMatchesSortOrder] = useState<"asc" | "desc">("desc");
+  const [matchesModelFilter, setMatchesModelFilter] = useState<string>("all");
   
   const addJob = useAction(api.jobs.add);
   const rebuildProfile = useAction(api.jobs.rebuildProfile);
   const reembedProfile = useAction(api.jobs.reembedProfile);
+  
+  // Get all available models from config
+  const availableModels = models.filter(model => model.enabled).map(model => model.id);
+  
+  // Get matches with pagination
+  const { results: matches, status: matchesStatus, loadMore } = usePaginatedQuery(
+    api.matches.getJobMatches,
+    {
+      jobId: id,
+      search: matchesSearch || undefined,
+      sortBy: matchesSortBy,
+      sortOrder: matchesSortOrder,
+      model: matchesModelFilter !== "all" ? matchesModelFilter : undefined,
+    },
+    { initialNumItems: 25 }
+  );
 
   function ProcessingStatusPill() {
     const getStatusColor = (status: string) => {
@@ -200,39 +236,142 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
             <TabsContent value="matches" className="flex-1 flex flex-col min-h-0 p-2">
               <div className="px-2 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Input placeholder="Search..." className="h-8 w-60" />
+                  <Input 
+                    placeholder="Search candidates..." 
+                    className="h-8 w-60" 
+                    value={matchesSearch}
+                    onChange={(e) => setMatchesSearch(e.target.value)}
+                  />
+                  <Select
+                    value={`${matchesSortBy}-${matchesSortOrder}`}
+                    onValueChange={(value) => {
+                      const [sortBy, sortOrder] = value.split('-');
+                      setMatchesSortBy(sortBy as "score" | "updatedAt" | "candidateName");
+                      setMatchesSortOrder(sortOrder as "asc" | "desc");
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-48">
+                      <SelectValue placeholder="Sort by..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="score-desc">Score (High to Low)</SelectItem>
+                      <SelectItem value="updatedAt-desc">Match Time (Most Recent)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={matchesModelFilter}
+                    onValueChange={setMatchesModelFilter}
+                  >
+                    <SelectTrigger className="h-8 w-40">
+                      <SelectValue placeholder="All Models" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Models</SelectItem>
+                      {availableModels && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">OpenAI</div>
+                          {availableModels.filter(model => 
+                            model === "gpt-5" || model === "gpt-5-mini" || model === "gpt-5-nano" || model === "gpt-4o"
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Google</div>
+                          {availableModels.filter(model => 
+                            model.startsWith("gemini")
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Anthropic</div>
+                          {availableModels.filter(model => 
+                            model.startsWith("claude")
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">xAI</div>
+                          {availableModels.filter(model => 
+                            model.startsWith("grok")
+                          ).map((model) => (
+                            <SelectItem key={model} value={model}>{model}</SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto rounded border bg-background">
                 <table className="w-full text-sm">
-                  <thead className="bg-background">
+                  <thead className="bg-background sticky top-0">
                     <tr>
                       <th className="text-left p-2 w-8">#</th>
                       <th className="text-left p-2">Candidate</th>
                       <th className="text-left p-2">% Score</th>
                       <th className="text-left p-2">Matched</th>
-                      <th className="text-left p-2">Imported</th>
-                      <th className="text-left p-2">Actions</th>
+                      <th className="text-left p-2">Model</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td colSpan={6} className="text-center p-4 text-muted-foreground">
-                        No matches found
-                      </td>
-                    </tr>
+                    {matchesStatus === "LoadingFirstPage" ? (
+                      <tr>
+                        <td colSpan={5} className="text-center p-4 text-muted-foreground">
+                          Loading matches...
+                        </td>
+                      </tr>
+                    ) : matches.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="text-center p-4 text-muted-foreground">
+                          No matches found
+                        </td>
+                      </tr>
+                    ) : (
+                      matches.map((match, index) => (
+                        <tr key={match._id} className="hover:bg-muted/50">
+                          <td className="p-2 text-muted-foreground">{index + 1}</td>
+                          <td className="p-2">
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-6 w-6">
+                                <AvatarFallback className="text-xs">
+                                  {getInitials(match.candidate?.name)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="font-medium">{match.candidate?.name || "Unknown Candidate"}</div>
+                            </div>
+                          </td>
+                          <td className="p-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium ${match.score >= 0.8 ? 'text-green-600' : match.score >= 0.6 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                {Math.round(match.score * 100)}%
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-2">
+                            <div className="text-muted-foreground">
+                              {match.updatedAt ? formatTimeAgo(match.updatedAt) : "Unknown"}
+                            </div>
+                          </td>
+                          <td className="p-2">
+                            <Badge variant="outline" className="text-xs">
+                              {match.model}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
-              <div className="shrink-0 flex items-center justify-center gap-2 py-3 border-t mt-2">
-                <Button variant="outline" size="icon">«</Button>
-                <Button variant="outline" size="sm">-5</Button>
-                <Button variant="outline" size="icon">‹</Button>
-                <span className="text-sm px-2">1 / 1</span>
-                <Button variant="outline" size="icon">›</Button>
-                <Button variant="outline" size="sm">+5</Button>
-                <Button variant="outline" size="icon">»</Button>
-              </div>
+              {matches.length > 0 && matchesStatus !== "LoadingFirstPage" && (
+                <div className="flex items-center justify-center gap-2 py-3 border-t mt-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => loadMore(25)}
+                    disabled={matchesStatus === "LoadingMore"}
+                  >
+                    {matchesStatus === "LoadingMore" ? "Loading..." : "Load More"}
+                  </Button>
+                </div>
+              )}
             </TabsContent>
             <TabsContent value="profile" className="overflow-y-auto p-3 relative">
               {profile ? (

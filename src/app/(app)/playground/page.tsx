@@ -5,8 +5,6 @@ import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -46,41 +44,13 @@ export default function PlaygroundPage() {
   const [selectedJob, setSelectedJob] = useState<Doc<"jobs"> | null>(null);
   const [selectedScoreCard, setSelectedScoreCard] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("gpt-5");
-  const [openModelDialog, setOpenModelDialog] = useState<boolean>(false);
   const [currentTaskId, setCurrentTaskId] = useState<Id<"tasks"> | null>(null);
 
   const [selectedScoringGuideline, setSelectedScoringGuideline] = useState<Doc<"scoringGuidelines"> | null>(null);
 
-  // Convert models array to availableModels structure
-  const availableModels = models.reduce((acc, model) => {
-    const existingGroup = acc.find(group => group.company === model.provider);
-    
-    if (existingGroup) {
-      existingGroup.models.push({
-        value: model.id,
-        label: model.name
-      });
-    } else {
-      acc.push({
-        company: model.provider,
-        models: [{
-          value: model.id,
-          label: model.name
-        }]
-      });
-    }
-    
-    return acc;
-  }, [] as Array<{ company: string; models: Array<{ value: string; label: string }> }>);
+  // Get available models from config
+  const availableModels = models.filter(model => model.enabled).map(model => model.id);
 
-  // Get current model label
-  const getCurrentModelLabel = () => {
-    for (const group of availableModels) {
-      const model = group.models.find(m => m.value === selectedModel);
-      if (model) return model.label;
-    }
-    return "Select Model";
-  };
 
 
   // Fetch match scores when both candidate and job are selected
@@ -386,48 +356,63 @@ export default function PlaygroundPage() {
             </div>
 
             {/* Model Selection */}
-            <div className="space-y-2  w-full">
+            <div className="space-y-2 w-full">
               <Label>Model</Label>
-              <Dialog open={openModelDialog} onOpenChange={setOpenModelDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start">
-                    {getCurrentModelLabel()}
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="p-0 overflow-hidden">
-                  <DialogTitle className="sr-only">Select Model</DialogTitle>
-                  <Command>
-                    <CommandInput placeholder="Search models..." />
-                    <CommandList>
-                      <CommandEmpty>No models found.</CommandEmpty>
-                      {availableModels.map((group) => (
-                        <CommandGroup key={group.company} heading={group.company}>
-                          {group.models.map((model) => (
-                            <CommandItem
-                              key={model.value}
-                              value={model.value}
-                              onSelect={() => {
-                                setSelectedModel(model.value);
-                                setOpenModelDialog(false);
-                              }}
-                              className="py-3 h-12"
-                            >
-                              <div className="flex items-center justify-between w-full">
-                                <span>{model.label}</span>
-                                {selectedModel === model.value && (
-                                  <Badge variant="outline" className="text-xs">
-                                    Selected
-                                  </Badge>
-                                )}
-                              </div>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      ))}
-                    </CommandList>
-                  </Command>
-                </DialogContent>
-              </Dialog>
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select Model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableModels && (
+                    <>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">OpenAI</div>
+                      {availableModels.filter(model => 
+                        model === "gpt-5" || model === "gpt-5-mini" || model === "gpt-5-nano" || model === "gpt-4o"
+                      ).map((model) => {
+                        const modelInfo = models.find(m => m.id === model);
+                        return (
+                          <SelectItem key={model} value={model}>
+                            {modelInfo?.name || model}
+                          </SelectItem>
+                        );
+                      })}
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Google</div>
+                      {availableModels.filter(model => 
+                        model.startsWith("gemini")
+                      ).map((model) => {
+                        const modelInfo = models.find(m => m.id === model);
+                        return (
+                          <SelectItem key={model} value={model}>
+                            {modelInfo?.name || model}
+                          </SelectItem>
+                        );
+                      })}
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Anthropic</div>
+                      {availableModels.filter(model => 
+                        model.startsWith("claude")
+                      ).map((model) => {
+                        const modelInfo = models.find(m => m.id === model);
+                        return (
+                          <SelectItem key={model} value={model}>
+                            {modelInfo?.name || model}
+                          </SelectItem>
+                        );
+                      })}
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">xAI</div>
+                      {availableModels.filter(model => 
+                        model.startsWith("grok")
+                      ).map((model) => {
+                        const modelInfo = models.find(m => m.id === model);
+                        return (
+                          <SelectItem key={model} value={model}>
+                            {modelInfo?.name || model}
+                          </SelectItem>
+                        );
+                      })}
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Scoring Guidelines */}

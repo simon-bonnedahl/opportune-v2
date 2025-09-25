@@ -72,9 +72,9 @@ export const update = mutation({
             throw new Error("Scoring guideline not found");
         }
 
-        if (guideline.createdBy !== user._id) {
-            throw new Error("Not authorized to update this scoring guideline");
-        }
+        // if (guideline.createdBy !== user._id) {
+        //     throw new Error("Not authorized to update this scoring guideline");
+        // }
 
         return await ctx.db.patch(id, {
             name,
