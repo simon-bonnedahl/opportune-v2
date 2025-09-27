@@ -10,14 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { JobsTable } from "@/components/jobs/jobs-table";
 import { JobDialog } from "@/components/jobs/job-dialog";
 import { useDebounce } from "@/hooks/use-debounce";
-import { useProgressToast } from "@/hooks/use-progress-toast";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Id } from "@/lib/convex";
 
 export default function JobsPage() {
   const [selectedId, setSelectedId] = useState<Id<"jobs"> | null>(null);
-  const { showProgressToast } = useProgressToast();
   const [searchText, setSearchText] = useState<string>("");
   const debouncedSearchText = useDebounce(searchText, 500);
 
@@ -84,7 +82,7 @@ export default function JobsPage() {
         />
       </Card>
 
-      {selectedId && <JobDialog id={selectedId} onClose={() => setSelectedId(null)} showProgressToast={showProgressToast} />}
+      {selectedId && <JobDialog id={selectedId} onClose={() => setSelectedId(null)}  />}
     </div>
   );
 }

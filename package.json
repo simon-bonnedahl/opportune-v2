@@ -59,6 +59,7 @@
     "convex-helpers": "^0.1.104",
     "date-fns": "^4.1.0",
     "geist": "^1.5.1",
+    "hono": "^4.9.8",
     "input-otp": "^1.4.2",
     "kbar": "0.1.0-beta.48",
     "lucide-react": "^0.534.0",

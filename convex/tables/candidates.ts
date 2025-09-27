@@ -69,6 +69,7 @@ export const candidateEmbeddings = defineTable({
 })
     .index("by_candidate_id", ["candidateId"])
     .index("by_candidate_id_and_section", ["candidateId", "section"])
+    .index("by_section", ["section"])
     .vectorIndex("vector", { vectorField: "vector", dimensions: 1536 })
 
 
@@ -76,7 +77,7 @@ export const candidateTTCache = defineTable({
     teamtailorId: v.string(),
     candidateId: v.optional(v.id("candidates")),
     name: v.string(),
-    email: v.string(),
+    email: v.optional(v.string()),
     hasAssessment: v.boolean(),
     hasHubert: v.boolean(),
     hasResumeSummary: v.boolean(),

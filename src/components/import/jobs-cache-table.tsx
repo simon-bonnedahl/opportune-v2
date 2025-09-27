@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { Id } from "@/lib/convex";
+import { api, Doc, Id } from "@/lib/convex";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,20 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import Image from "next/image";
+import { timeAgo } from "@/lib/format";
 
-type JobTTCache = {
-  _id: Id<"jobTTCache">;
-  teamtailorId: string;
-  jobId?: Id<"jobs">;
-  title: string;
-  internalName: string;
-  body: string;
-  updatedAt: number;
-  createdAt: number;
-};
 
 interface JobsCacheTableProps {
-  data: JobTTCache[];
+  data: Doc<"jobTTCache">[];
   isLoading?: boolean;
   pagination: {
     isDone: boolean;
@@ -102,10 +93,11 @@ export function JobsCacheTable({
                   aria-label="Select all jobs"
                 />
               </TableHead>
-              <TableHead className="text-left">Title</TableHead>
-              <TableHead className="text-right w-24">Body Length</TableHead>
-              <TableHead className="text-right w-32">Last Updated</TableHead>
-              <TableHead className="text-right w-32">Created</TableHead>
+              <TableHead className="w-80">Title</TableHead>
+              <TableHead className="w-24">Status</TableHead>
+              <TableHead className="w-24">Body Length</TableHead>
+              <TableHead className="w-32">Last Updated</TableHead>
+              <TableHead className="w-32">Created</TableHead>
               <TableHead className="w-16"></TableHead>
             </TableRow>
           </TableHeader>
@@ -132,7 +124,7 @@ export function JobsCacheTable({
                       aria-label={`Select ${job.title}`}
                     />
                   </TableCell>
-                  <TableCell className="max-w-0">
+                  <TableCell className="w-80">
                     <div className="space-y-1">
                       <div className="text-sm font-medium truncate" title={job.title}>
                         {job.title}
@@ -144,13 +136,16 @@ export function JobsCacheTable({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right w-24 text-sm font-medium">
+                  <TableCell className="w-24 text-sm font-medium">
+                    <Badge >{job.status}</Badge>
+                  </TableCell>
+                  <TableCell className="w-24 text-sm font-medium">
                     {job.body.length}
                   </TableCell>
-                  <TableCell className="text-right w-32 text-sm text-muted-foreground">
-                    {format(new Date(job.updatedAt), "MMM dd, yyyy")}
+                  <TableCell className="w-32 text-sm text-muted-foreground">
+                    {timeAgo(job.updatedAt)}
                   </TableCell>
-                  <TableCell className="text-right w-32 text-sm text-muted-foreground">
+                  <TableCell className="w-32 text-sm text-muted-foreground">
                     {format(new Date(job.createdAt), "MMM dd, yyyy")}
                   </TableCell>
                   <TableCell className="w-16 text-right">

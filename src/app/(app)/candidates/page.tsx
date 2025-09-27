@@ -9,14 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CandidatesTable } from "@/components/candidates/candidates-table";
 import { CandidateDialog } from "@/components/candidates/candidate-dialog";
 import { useDebounce } from "@/hooks/use-debounce";
-import { useProgressToast } from "@/hooks/use-progress-toast";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { api, Id } from "@/lib/convex";
 
 export default function CandidatesPage() {
   const [selectedId, setSelectedId] = useState<Id<"candidates"> | null>(null);
-  const { showProgressToast } = useProgressToast();
   const [search, setSearch] = useState<string>("");
   const debouncedSearch = useDebounce(search, 500);
 
@@ -85,7 +83,7 @@ export default function CandidatesPage() {
       </Card>
 
       {selectedId && (
-        <CandidateDialog id={selectedId} onClose={() => setSelectedId(null)} showProgressToast={showProgressToast} />
+        <CandidateDialog id={selectedId} onClose={() => setSelectedId(null)} />
       )}
     </div>
   );

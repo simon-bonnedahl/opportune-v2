@@ -16,13 +16,15 @@ export function formatDate(
   }
 }
 
-export function formatDuration(startMs?: number, endMs?: number) {
+export function formatDuration(startMs?: number, endMs?: number, decimals: number = 0) {
   if (!startMs || !endMs) return '';
-  const seconds = Math.max(0, Math.round((endMs - startMs) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
+  const totalSeconds = Math.max(0, (endMs - startMs) / 1000);
+  if (totalSeconds < 60) {
+    return decimals > 0 ? `${totalSeconds.toFixed(decimals)}s` : `${Math.round(totalSeconds)}s`;
+  }
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return decimals > 0 ? `${m}m ${s.toFixed(decimals)}s` : `${m}m ${Math.round(s)}s`;
 }
 
 export function timeAgo(ms: number) {

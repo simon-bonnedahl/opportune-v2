@@ -1,8 +1,8 @@
-import { action, internalMutation, query } from "./_generated/server";
+import { action, httpAction, internalMutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { enqueueTask } from "./tasks";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { paginationOptsValidator } from "convex/server";
 import { candidateProfileSections } from "./tables/candidates";
 import { jobProfileSections } from "./tables/jobs";
@@ -49,15 +49,19 @@ export function validateJobProfile(profile: any): void {
 //Internal
 export const create = internalMutation({
   args: {
-    teamtailorId: v.string(), 
-    teamtailorTitle: v.string(),
+    teamtailorId: v.optional(v.string()), 
+    teamtailorTitle: v.optional(v.string()),
     title: v.optional(v.string()),
     companyId: v.optional(v.id("companies")),
     orderNumber: v.optional(v.string()),
+    type: v.optional(v.union(v.literal("order"), v.literal("lead"), v.literal("prospect"))),
+    recruiters: v.array(v.id("users")),
+    salesRepresentatives: v.array(v.id("users")),
+    locations: v.optional(v.array(v.string())),
     rawData: v.any(),
     processingTask: v.optional(v.id("tasks")),
-    updatedAtTT: v.number(),
-    createdAtTT: v.number(),
+    updatedAtTT: v.optional(v.number()),
+    createdAtTT: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existingJob = await ctx.db
@@ -73,8 +77,11 @@ export const create = internalMutation({
       teamtailorTitle: args.teamtailorTitle,
       title: args.title,
       companyId: args.companyId,
-      locations: [],  
+      locations: args.locations ?? [],  
       orderNumber: args.orderNumber,
+      type: args.type,
+      recruiters: args.recruiters,
+      salesRepresentatives: args.salesRepresentatives,
       rawData: args.rawData,
       processingTask: args.processingTask,
       updatedAt: Date.now(),
@@ -143,7 +150,8 @@ export const upsertProfile = internalMutation({
 export const upsertSourceData = internalMutation({
   args: {
     jobId: v.id("jobs"),
-   teamtailorBody: v.optional(v.any()),
+    teamtailorBody: v.optional(v.any()),
+    body: v.optional(v.any()),
   },
   returns: v.union(v.id("jobSourceData"), v.null()),
   handler: async (ctx, args) => {
@@ -153,6 +161,7 @@ export const upsertSourceData = internalMutation({
       .first();
     const doc = {
       teamtailorBody: args.teamtailorBody,
+      body: args.body,
       updatedAt: Date.now(),
     };
     if (existing) {
@@ -352,3 +361,65 @@ export const reembedProfile = action({
   }
 });
 
+//Http Actions
+
+export const addJob = httpAction(async (ctx, request) => {
+  //validate api token
+  const authHeader = request.headers.get("authorization");
+  const expectedToken = process.env.HTTP_API_TOKEN;
+  if (!expectedToken) {
+    return new Response("API token not configured", { status: 500 });
+  }
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return new Response("Missing or invalid authorization header", { status: 401 });
+  }
+  const token = authHeader.substring(7); // Remove "Bearer " prefix
+  if (token !== expectedToken) {
+    return new Response("Invalid API token", { status: 401 });
+  }
+
+  const { orderNumber, title, company, recruiters, salesRepresentatives, locations, type, body } = await request.json();
+
+
+  console.log(orderNumber, title, company, recruiters, salesRepresentatives, locations, type, body);
+
+  //Create or get company id
+  const companyId = await ctx.runMutation(internal.companies.connectOrCreate, { name: company });
+  //create or get recruiter ids
+  const recruiterIds = [];
+  for (const recruiter of recruiters) {
+    const recruiterId = await ctx.runMutation(internal.users.connectOrCreate, { email: recruiter });
+    recruiterIds.push(recruiterId);
+  }
+  //create or get sales representative ids
+  const salesRepresentativeIds = [];
+  for (const salesRepresentative of salesRepresentatives) {
+    const salesRepresentativeId = await ctx.runMutation(internal.users.connectOrCreate, { email: salesRepresentative });
+    salesRepresentativeIds.push(salesRepresentativeId);
+  }
+  //create job record
+  const jobId = await ctx.runMutation(internal.jobs.create, {
+    orderNumber,
+    title,
+    type,
+    companyId,
+    locations,
+    recruiters: recruiterIds,
+    salesRepresentatives: salesRepresentativeIds,
+    rawData: body,
+  });
+  //upsert job source data
+  await ctx.runMutation(internal.jobs.upsertSourceData, {
+    jobId,
+    body: body,
+  });
+  //enqueue build profile task
+  await enqueueTask(ctx, "build_profile", "system", { type: "job", id: jobId });
+
+
+
+
+  return new Response("Job added", {
+    status: 200,
+  });
+});

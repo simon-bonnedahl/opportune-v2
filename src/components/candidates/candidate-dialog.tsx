@@ -8,11 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useProgressToast } from "@/hooks/use-progress-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { toast } from "sonner";
 import { RefreshCw, UserCog, Brain, Info, MoreHorizontal } from "lucide-react";
 import { api, Id } from "@/lib/convex";
@@ -51,10 +49,9 @@ function formatTimeAgo(timestamp: number): string {
 interface CandidateDialogProps {
   id: Id<"candidates">;
   onClose: () => void;
-  showProgressToast: (taskId: Id<"tasks">, title: string) => void;
 }
 
-export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDialogProps) {
+export function CandidateDialog({ id, onClose }: CandidateDialogProps) {
   const profile = useQuery(api.candidates.getProfile, { candidateId: id })
   const sourceData = useQuery(api.candidates.getSourceData, { candidateId: id })
   const candidate = useQuery(api.candidates.get, { candidateId: id })
@@ -70,9 +67,10 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
   const addCandidate = useAction(api.candidates.add);
   const rebuildProfile = useAction(api.candidates.rebuildProfile);
   const reembedProfile = useAction(api.candidates.reembedProfile);
+
+
   
-  // Get all available models from config
-  const availableModels = models.filter(model => model.enabled).map(model => model.id);
+
   
   // Get matches with pagination
   const { results: matches, status: matchesStatus, loadMore } = usePaginatedQuery(
@@ -138,7 +136,6 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
     try {
       const result = await addCandidate({ teamtailorId: candidate.teamtailorId });
       if (result?.taskId) {
-        showProgressToast(result.taskId, "Re-importing Candidate");
       }
     } catch (error) {
       console.error("Failed to re-import candidate:", error);
@@ -152,9 +149,7 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
     setIsRebuilding(true);
     try {
       const result = await rebuildProfile({ candidateId: id });
-      if (result?.taskId) {
-        showProgressToast(result.taskId, "Rebuilding Candidate Profile");
-      }
+    
     } catch (error) {
       console.error("Failed to rebuild profile:", error);
       toast.error("Failed to rebuild profile");
@@ -167,9 +162,7 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
     setIsReembedding(true);
     try {
       const result = await reembedProfile({ candidateId: id });
-      if (result?.taskId) {
-        showProgressToast(result.taskId, "Re-embedding Candidate Profile");
-      }
+    
     } catch (error) {
       console.error("Failed to re-embed profile:", error);
       toast.error("Failed to re-embed profile");
@@ -281,32 +274,40 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Models</SelectItem>
-                      {availableModels && (
+                      {models && (
                         <>
-                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">OpenAI</div>
-                          {availableModels.filter(model => 
-                            model === "gpt-5" || model === "gpt-5-mini" || model === "gpt-5-nano" || model === "gpt-4o"
-                          ).map((model) => (
-                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                          ))}
-                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Google</div>
-                          {availableModels.filter(model => 
-                            model.startsWith("gemini")
-                          ).map((model) => (
-                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                          ))}
-                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Anthropic</div>
-                          {availableModels.filter(model => 
-                            model.startsWith("claude")
-                          ).map((model) => (
-                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                          ))}
-                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">xAI</div>
-                          {availableModels.filter(model => 
-                            model.startsWith("grok")
-                          ).map((model) => (
-                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                          ))}
+                          <SelectGroup>
+                            <SelectLabel>OpenAI</SelectLabel>
+                            {models.filter(model => 
+                              model.provider === "OpenAI"
+                            ).map((model) => (
+                              <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel>Google</SelectLabel>
+                            {models.filter(model => 
+                              model.provider === "Google"
+                            ).map((model) => (
+                              <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel>Anthropic</SelectLabel>
+                            {models.filter(model => 
+                              model.provider === "Anthropic"
+                            ).map((model) => (
+                              <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                          <SelectGroup>
+                            <SelectLabel>xAI</SelectLabel>
+                            {models.filter(model => 
+                              model.provider === "xAI"
+                            ).map((model) => (
+                              <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                            ))}
+                          </SelectGroup>
                         </>
                       )}
                     </SelectContent>
@@ -319,8 +320,7 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                     <tr>
                       <th className="text-left p-2 w-8">#</th>
                       <th className="text-left p-2">Job</th>
-                      <th className="text-left p-2">Company</th>
-                      <th className="text-left p-2">% Score</th>
+                      <th className="text-left p-2">Score</th>
                       <th className="text-left p-2">Matched</th>
                       <th className="text-left p-2">Model</th>
                     </tr>
@@ -344,9 +344,6 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                           <td className="p-2 text-muted-foreground">{index + 1}</td>
                           <td className="p-2">
                             <div className="font-medium">{match.job?.title || "Unknown Job"}</div>
-                          </td>
-                          <td className="p-2">
-                            <div className="text-muted-foreground">{match.job?.company || "Unknown Company"}</div>
                           </td>
                           <td className="p-2">
                             <div className="flex items-center gap-2">
@@ -503,7 +500,7 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
             <TabsContent value="sourcedata" className="overflow-y-auto p-3">
               <div className="space-y-6 text-sm">
                 {/* Assessment Section */}
-                {sourceData?.assessment ? (
+                {sourceData?.assessment && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="font-medium text-base">Teamtailor Assessment</div>
@@ -562,8 +559,6 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                       <div className="text-sm text-neutral-400">No assessment details available</div>
                     )}
                   </div>
-                ) : (
-                  <div className="text-sm text-neutral-400">No assessment available</div>
                 )}
 
                  {/* Hubert Q&A Section */}
@@ -596,6 +591,35 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                   </div>
                 )}
 
+                {/* LinkedIn Summary Section */}
+                {sourceData?.linkedinSummary && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium text-base">LinkedIn Summary</div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        {candidate?.linkedinUrl && (
+                          <Button
+                            className="hover:cursor-pointer hover:scale-105 transition-all duration-300"
+                            variant="link"
+                            size="icon"
+                            onClick={() => window.open(candidate.linkedinUrl, "_blank")}
+                          >
+                            <Image
+                              src="/images/linkedin_logo.png"
+                              alt="LinkedIn"
+                              width={100}
+                              height={100}
+                              className="size-6 rounded-full"
+                            />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-4">
+                      <p className="whitespace-pre-wrap " dangerouslySetInnerHTML={{ __html: sourceData.linkedinSummary }}></p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Resume Summary Section */}
                 {sourceData?.resumeSummary && (
@@ -607,15 +631,7 @@ export function CandidateDialog({ id, onClose, showProgressToast }: CandidateDia
                   </div>
                 )}
 
-                {/* LinkedIn Summary Section */}
-                {sourceData?.linkedinSummary && (
-                  <div className="space-y-2">
-                    <div className="font-medium text-base">LinkedIn Summary</div>
-                    <div className="bg-muted/30 rounded-lg p-4">
-                      <p className="whitespace-pre-wrap">{sourceData.linkedinSummary}</p>
-                    </div>
-                  </div>
-                )}
+                
 
                
                

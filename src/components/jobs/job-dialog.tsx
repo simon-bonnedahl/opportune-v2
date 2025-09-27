@@ -11,7 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProfileInfoTooltip } from "@/components/ui/profile-info-tooltip";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useProgressToast } from "@/hooks/use-progress-toast";
 import { toast } from "sonner";
 import { RefreshCw, UserCog, Brain, Info, MoreHorizontal } from "lucide-react";
 import { api, Id } from "@/lib/convex";
@@ -43,10 +42,9 @@ function formatTimeAgo(timestamp: number): string {
 interface JobDialogProps {
   id: Id<"jobs">;
   onClose: () => void;
-  showProgressToast: (taskId: Id<"tasks">, title: string) => void;
 }
 
-export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
+export function JobDialog({ id, onClose }: JobDialogProps) {
   const job = useQuery(api.jobs.get, { jobId: id  })
   const profile = useQuery(api.jobs.getProfile, { jobId: id })
   const sourceData = useQuery(api.jobs.getSourceData, { jobId: id  });
@@ -130,9 +128,7 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
     setIsReimporting(true);
     try {
       const result = await addJob({ teamtailorId: job.teamtailorId });
-      if (result?.taskId) {
-        showProgressToast(result.taskId, "Re-importing Job");
-      }
+  
     } catch (error) {
       console.error("Failed to re-import job:", error);
       toast.error("Failed to start job re-import. Please try again.");
@@ -145,9 +141,7 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
     setIsRebuilding(true);
     try {
       const result = await rebuildProfile({ jobId: id });
-      if (result?.taskId) {
-        showProgressToast(result.taskId, "Rebuilding Job Profile");
-      }
+    
     } catch (error) {
       console.error("Failed to rebuild profile:", error);
       toast.error("Failed to rebuild profile");
@@ -160,9 +154,6 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
     setIsReembedding(true);
     try {
       const result = await reembedProfile({ jobId: id });
-      if (result?.taskId) {
-        showProgressToast(result.taskId, "Re-embedding Job Profile");
-      }
     } catch (error) {
       console.error("Failed to re-embed profile:", error);
       toast.error("Failed to re-embed profile");
@@ -254,8 +245,8 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
                       <SelectValue placeholder="Sort by..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="score-desc">Score (High to Low)</SelectItem>
-                      <SelectItem value="updatedAt-desc">Match Time (Most Recent)</SelectItem>
+                      <SelectItem value="score-desc">Score</SelectItem>
+                      <SelectItem value="updatedAt-desc">Match Time</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select
@@ -468,7 +459,7 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
             <TabsContent value="sourcedata" className="overflow-y-auto p-3">
               <div className="space-y-6 text-sm">
                 {/* TeamTailor Body Section */}
-                {sourceData?.teamtailorBody ? (
+                {sourceData?.teamtailorBody && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="font-medium text-base">TeamTailor Body</div>
@@ -498,8 +489,14 @@ export function JobDialog({ id, onClose, showProgressToast }: JobDialogProps) {
                       </div>
                     </div>
                   </div>
-                ) : (
-                  <div className="text-sm text-neutral-400">No TeamTailor body data available</div>
+                )}
+                {sourceData?.body && (
+                  <div className="space-y-4">
+                    <div className="font-medium text-base">Body</div>
+                    <div className="bg-muted/30 rounded-lg p-4">
+                      <p className="whitespace-pre-wrap">{sourceData.body}</p>
+                    </div>
+                  </div>
                 )}
               </div>
             </TabsContent>

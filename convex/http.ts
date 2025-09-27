@@ -3,8 +3,15 @@ import { httpAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
 import type { WebhookEvent } from "@clerk/backend";
 import { Webhook } from "svix";
+import { addJob } from "./jobs";
 
 const http = httpRouter();
+
+http.route({
+	path: "/add-job",
+	method: "POST",
+	handler: addJob,
+});
 
 http.route({
 	path: "/clerk-users-webhook",

@@ -88,3 +88,13 @@ async function getByEmail(ctx: QueryCtx, email: string) {
     .withIndex("by_email", (q) => q.eq("email", email))
     .unique();
 }
+
+export const connectOrCreate = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user = await getByEmail(ctx, args.email);
+    if (user) return user._id;
+    const userId = await ctx.db.insert("users", { name: args.email, email: args.email, imageUrl: "", role: "ADMIN", externalId: "" });
+    return userId;
+  },
+});

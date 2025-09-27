@@ -355,7 +355,7 @@ export const upsertCandidateTTCacheRow = internalMutation({
     args: {
         teamtailorId: v.string(),
         name: v.string(),
-        email: v.string(),
+        email: v.optional(v.string()),
         hasAssessment: v.boolean(),
         hasHubert: v.boolean(),
         hasResumeSummary: v.boolean(),
@@ -397,6 +397,7 @@ export const upsertJobTTCacheRow = internalMutation({
         teamtailorId: v.string(),
         title: v.string(),
         body: v.string(),
+        status: v.string(),
         internalName: v.string(),
         updatedAt: v.number(),
         createdAt: v.number(),
@@ -414,6 +415,7 @@ export const upsertJobTTCacheRow = internalMutation({
         return await ctx.db.insert("jobTTCache", {
             teamtailorId: args.teamtailorId,
             title: args.title,
+            status: args.status,
             body: args.body,
             internalName: args.internalName,
             updatedAt: args.updatedAt,

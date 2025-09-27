@@ -1,30 +1,19 @@
 "use client";
 
 import { format } from "date-fns";
-import { Id } from "@/lib/convex";
+import { Doc, Id } from "@/lib/convex";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import Image from "next/image";
+import { timeAgo } from "@/lib/format";
 
-type CandidateTTCache = {
-  _id: Id<"candidateTTCache">;
-  teamtailorId: string;
-  candidateId?: Id<"candidates">;
-  name: string;
-  email: string;
-  hasAssessment: boolean;
-  hasHubert: boolean;
-  hasResumeSummary: boolean;
-  hasLinkedinSummary: boolean;
-  updatedAt: number;
-  createdAt: number;
-};
+
 
 interface CandidatesCacheTableProps {
-  data: CandidateTTCache[];
+  data: Doc<"candidateTTCache">[];
   isLoading?: boolean;
   pagination: {
     isDone: boolean;
@@ -148,7 +137,7 @@ export function CandidatesCacheTable({
                 <TableCell className="w-64 font-medium">{candidate.name}</TableCell>
                 <TableCell className="w-64 text-muted-foreground">{candidate.email}</TableCell>
                 <TableCell className="w-32 text-sm">
-                  {format(new Date(candidate.updatedAt), "MMM dd, yyyy")}
+                  {timeAgo(candidate.updatedAt)}
                 </TableCell>
                 <TableCell className="w-32 text-sm text-muted-foreground">
                   {format(new Date(candidate.createdAt), "MMM dd, yyyy")}
@@ -156,16 +145,16 @@ export function CandidatesCacheTable({
                 <TableCell className="w-32">
                   <div className="flex gap-1 flex-wrap">
                     {candidate.hasAssessment && (
-                      <Badge variant="secondary" className="text-xs">Assessment</Badge>
+                      <Badge className="text-xs">Assessment</Badge>
                     )}
                     {candidate.hasHubert && (
-                      <Badge variant="secondary" className="text-xs">Hubert</Badge>
+                      <Badge className="text-xs">Hubert</Badge>
                     )}
                     {candidate.hasResumeSummary && (
-                      <Badge variant="secondary" className="text-xs">Resume</Badge>
+                      <Badge className="text-xs">Resume</Badge>
                     )}
                     {candidate.hasLinkedinSummary && (
-                      <Badge variant="secondary" className="text-xs">LinkedIn</Badge>
+                      <Badge className="text-xs">LinkedIn</Badge>
                     )}
                   </div>
                 </TableCell>

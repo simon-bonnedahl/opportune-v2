@@ -31,18 +31,6 @@ export function JobsTable({
     return (first + last).toUpperCase();
   }
 
-  function getJobTags(row: Doc<"jobs">): string[] {
-    const tags: string[] = [];
-    const attrs = row?.rawData?.attributes ?? {};
-    if (Array.isArray(attrs?.tags)) {
-      for (const t of attrs.tags) if (typeof t === "string") tags.push(t);
-    }
-    if (typeof attrs?.status === "string") tags.push(attrs.status);
-    if (typeof attrs?.location === "string") tags.push(attrs.location);
-    if (typeof attrs?.["location-name"] === "string") tags.push(attrs["location-name"]);
-    if (typeof attrs?.department === "string") tags.push(attrs.department);
-    return tags;
-  }
 
   function ProcessingStatusPill({ jobId }: { jobId: Id<"jobs"> }) {
     const processingStatus = useQuery(api.jobs.getProcessingStatus, { jobId });
@@ -117,9 +105,8 @@ export function JobsTable({
         <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-64">Title</TableHead>
-              <TableHead className="w-64">Tags</TableHead>
-              <TableHead className="w-32">Best Match</TableHead>
+              <TableHead className="w-80">Title</TableHead>
+              <TableHead className="w-24">Type</TableHead>
               <TableHead className="w-32">Processing</TableHead>
               <TableHead className="w-32">Imported</TableHead>
             </TableRow>
@@ -145,32 +132,20 @@ export function JobsTable({
             ) : (
               data.map((job) => (
                 <TableRow key={job._id} className="hover:bg-muted/50 cursor-pointer" onClick={() => onRowClick?.(job._id)}>
-                  <TableCell className="w-64">
+                  <TableCell className="w-80">
                     <div className="flex items-center gap-3">
                       <Avatar className="size-10">
                         <AvatarFallback className="text-sm">
-                          {getInitials(job?.rawData?.attributes?.title ?? String(job._id))}
+                          {getInitials(job?.teamtailorTitle ?? job.title)}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="font-medium truncate">{job?.rawData?.attributes?.title ?? job._id}</div>
+                      <div className="font-medium truncate">{job?.teamtailorTitle ?? job.title}</div>
                     </div>
                   </TableCell>
-                  <TableCell className="w-64">
+                  <TableCell className="w-24">
                     <div className="flex flex-wrap gap-1">
-                      {getJobTags(job).slice(0, 4).map((t) => (
-                        <Badge key={t} variant="outline" className="px-1 py-0 text-[11px]">
-                          {t}
-                        </Badge>
-                      ))}
-                      {getJobTags(job).length > 4 && (
-                        <Badge variant="secondary" className="px-1 py-0 text-[11px]">
-                          +{getJobTags(job).length - 4}
-                        </Badge>
-                      )}
+                      <Badge className="capitalize">{job?.type}</Badge>
                     </div>
-                  </TableCell>
-                  <TableCell className="w-32">
-                    {/* Best match column intentionally left blank for now */}
                   </TableCell>
                   <TableCell className="w-32">
                     <ProcessingStatusPill jobId={job._id} />

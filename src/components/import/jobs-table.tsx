@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import Image from "next/image";
+import { timeAgo } from "@/lib/format";
 
 
 interface JobsTableProps {
@@ -144,8 +145,8 @@ export function JobsTable({
                   <TableCell className="text-right w-24 text-sm font-medium">
                     {job.bodyLength}
                   </TableCell>
-                  <TableCell className="text-right w-32 text-sm text-muted-foreground">
-                    {format(new Date(job.updatedAtTT), "MMM dd, yyyy")}
+                  <TableCell className="text-right w-32 text-sm ">
+                    {timeAgo(job.updatedAtTT)}
                   </TableCell>
                   <TableCell className="text-right w-32 text-sm text-muted-foreground">
                     {format(new Date(job.createdAtTT), "MMM dd, yyyy")}

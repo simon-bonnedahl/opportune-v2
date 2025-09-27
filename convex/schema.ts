@@ -29,7 +29,7 @@ export default defineSchema({
     imageUrl: v.optional(v.string()),
     locations: v.array(v.string()),
     updatedAt: v.number(),
-  }).searchIndex("by_name", { searchField: "name" }),
+  }).searchIndex("search_by_name", { searchField: "name" }).index("by_name", ["name"]),
 
   matches: defineTable({
     candidateId: v.id("candidates"),
@@ -57,7 +57,7 @@ export default defineSchema({
   tasks: defineTable({
     workpool: v.string(),
     type: v.string(),
-    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron")),
+    triggeredBy: v.union(v.literal("user"), v.literal("task"), v.literal("cron"), v.literal("system")),
     triggeredById: v.optional(v.union(v.id("users"), v.id("tasks"), v.string())),
     args: v.optional(v.any()),
     status: taskStatus,

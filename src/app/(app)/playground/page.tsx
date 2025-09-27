@@ -24,10 +24,10 @@ import { Input } from "@/components/ui/input";
 import { Icons } from "@/components/icons";
 import { models } from "@/config/models";
 import { timeAgo } from "@/lib/format";
-import { 
-  Context, 
-  ContextTrigger, 
-  ContextContent, 
+import {
+  Context,
+  ContextTrigger,
+  ContextContent,
   ContextContentHeader,
   ContextContentBody,
   ContextContentFooter,
@@ -90,7 +90,7 @@ export default function PlaygroundPage() {
   );
 
   // Create new match mutation
-  const enqueueMatch = useAction(api.matches.enqueueMatch);
+  const runTask = useAction(api.tasks.runTask);
 
   // Get task status when we have a current task
   const currentTask = useQuery(
@@ -105,15 +105,19 @@ export default function PlaygroundPage() {
     setCurrentTaskId(null);
 
     try {
-      const result = await enqueueMatch({
-        candidateId: selectedCandidate._id,
-        jobId: selectedJob._id,
-        model: selectedModel,
-        scoringGuidelineId: selectedScoringGuideline._id,
+      const result = await runTask({
+        taskType: "match",
+        triggeredBy: "user",
+        args: {
+          candidateId: selectedCandidate._id,
+          jobId: selectedJob._id,
+          model: selectedModel,
+          scoringGuidelineId: selectedScoringGuideline._id,
+        },
       });
-      
-      if (result?.taskId) {
-        setCurrentTaskId(result.taskId);
+
+      if (result?.data?.taskId) {
+        setCurrentTaskId(result.data.taskId);
       }
     } catch (error) {
       console.error("Failed to create match:", error);
@@ -262,15 +266,15 @@ export default function PlaygroundPage() {
                                   <Context
                                     usedTokens={match.metadata.totalUsage.totalTokens}
                                     maxTokens={match.metadata.model === 'gpt-5' ? 200000 : 128000}
-                                    usage={match.metadata.totalUsage}	
+                                    usage={match.metadata.totalUsage}
                                     modelId={match.metadata.modelId}
                                   >
                                     <ContextTrigger>
-                                      <Image 
+                                      <Image
                                         src={getProviderLogo(match.metadata?.provider || "OpenAI").src}
                                         alt={getProviderLogo(match.metadata?.provider || "OpenAI").alt}
-                                        width={20} 
-                                        height={20} 
+                                        width={20}
+                                        height={20}
                                         className="cursor-pointer hover:opacity-80 transition-opacity rounded-full"
                                       />
                                     </ContextTrigger>
@@ -297,8 +301,8 @@ export default function PlaygroundPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
-                                <Progress 
-                                  value={match.score * 100} 
+                                <Progress
+                                  value={match.score * 100}
                                   className="h-2 flex-1"
                                 />
                                 <div className="text-sm font-medium min-w-[3rem] text-right">
@@ -366,7 +370,7 @@ export default function PlaygroundPage() {
                   {availableModels && (
                     <>
                       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">OpenAI</div>
-                      {availableModels.filter(model => 
+                      {availableModels.filter(model =>
                         model === "gpt-5" || model === "gpt-5-mini" || model === "gpt-5-nano" || model === "gpt-4o"
                       ).map((model) => {
                         const modelInfo = models.find(m => m.id === model);
@@ -377,7 +381,7 @@ export default function PlaygroundPage() {
                         );
                       })}
                       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Google</div>
-                      {availableModels.filter(model => 
+                      {availableModels.filter(model =>
                         model.startsWith("gemini")
                       ).map((model) => {
                         const modelInfo = models.find(m => m.id === model);
@@ -388,7 +392,7 @@ export default function PlaygroundPage() {
                         );
                       })}
                       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Anthropic</div>
-                      {availableModels.filter(model => 
+                      {availableModels.filter(model =>
                         model.startsWith("claude")
                       ).map((model) => {
                         const modelInfo = models.find(m => m.id === model);
@@ -399,7 +403,7 @@ export default function PlaygroundPage() {
                         );
                       })}
                       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">xAI</div>
-                      {availableModels.filter(model => 
+                      {availableModels.filter(model =>
                         model.startsWith("grok")
                       ).map((model) => {
                         const modelInfo = models.find(m => m.id === model);
@@ -416,28 +420,28 @@ export default function PlaygroundPage() {
             </div>
 
             {/* Scoring Guidelines */}
-             <div className="space-y-2 w-full">
-               <Label>Scoring Guidelines</Label>
-               <Select onValueChange={(value) => setSelectedScoringGuideline(scoringGuidelines?.find((scoringGuideline) => scoringGuideline._id === value) ?? null)}>
-                 <SelectTrigger className="w-full">
-                   <SelectValue placeholder="Select Scoring Guidelines" />
-                 </SelectTrigger>
-                 <SelectContent>
-                   {scoringGuidelines?.map((scoringGuideline) => (
-                     <SelectItem key={scoringGuideline._id} value={scoringGuideline._id}>
-                       {scoringGuideline.name}
-                     </SelectItem>
-                   ))}
-                 </SelectContent>
-               </Select>
-             </div>
+            <div className="space-y-2 w-full">
+              <Label>Scoring Guidelines</Label>
+              <Select onValueChange={(value) => setSelectedScoringGuideline(scoringGuidelines?.find((scoringGuideline) => scoringGuideline._id === value) ?? null)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select Scoring Guidelines" />
+                </SelectTrigger>
+                <SelectContent>
+                  {scoringGuidelines?.map((scoringGuideline) => (
+                    <SelectItem key={scoringGuideline._id} value={scoringGuideline._id}>
+                      {scoringGuideline.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-             {/* Selected Scoring Guidelines Content */}
-             {selectedScoringGuideline && (
-               <div className="space-y-2 w-full">
-                 <Textarea value={selectedScoringGuideline.text} disabled className="max-h-96 overflow-y-auto resize-none" />
-               </div>
-             )}
+            {/* Selected Scoring Guidelines Content */}
+            {selectedScoringGuideline && (
+              <div className="space-y-2 w-full">
+                <Textarea value={selectedScoringGuideline.text} disabled className="max-h-96 overflow-y-auto resize-none" />
+              </div>
+            )}
 
           </div>
 
@@ -452,9 +456,9 @@ export default function PlaygroundPage() {
                   )}
                   <Badge variant={
                     currentTask.status === "succeeded" ? "default" :
-                    currentTask.status === "running" ? "secondary" :
-                    currentTask.status === "failed" ? "destructive" :
-                    "outline"
+                      currentTask.status === "running" ? "secondary" :
+                        currentTask.status === "failed" ? "destructive" :
+                          "outline"
                   }>
                     {currentTask.status}
                   </Badge>
@@ -470,7 +474,7 @@ export default function PlaygroundPage() {
                   )}
                 </div>
               </div>
-              
+
               {currentTask.status === "running" && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
@@ -483,11 +487,11 @@ export default function PlaygroundPage() {
                   )}
                 </div>
               )}
-              
+
               {currentTask.status === "succeeded" && (
                 <p className="text-sm text-green-600">Match completed successfully!</p>
               )}
-              
+
               {currentTask.status === "failed" && currentTask.errorMessage && (
                 <p className="text-sm text-red-600">{currentTask.errorMessage}</p>
               )}
@@ -533,16 +537,16 @@ function ScoreCard({
 }) {
   const display = value === undefined ? "-" : `${(value * 100).toFixed(1)}%`;
   const progressValue = value === undefined ? 0 : value * 100;
-  
+
   // Color coding based on score
   const getProgressColor = (score: number) => {
     if (score >= 0.7) return "text-green-500"; // Green for good scores (70%+)
     if (score >= 0.4) return "text-yellow-500"; // Yellow for moderate scores (40-69%)
     return "text-red-500"; // Red for poor scores (<40%)
   };
-  
+
   const progressColor = value === undefined ? "text-gray-400" : getProgressColor(value);
-  
+
   return (
     <Card
       className={`cursor-pointer transition-all hover:shadow-md ${highlight ? "border-primary/60" : ""

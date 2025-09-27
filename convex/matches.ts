@@ -4,13 +4,13 @@ import { paginationOptsValidator } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
 import { Id } from './_generated/dataModel';
 import { enqueueTask } from './tasks';
-import { models } from '../src/config/models';
+  import { models } from '../src/config/models';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-const getModel = (modelId: string) => {
+export const getModel = (modelId: string) => {
   return models.find((m) => m.id === modelId)?.model;
 }
-const getProvider = (modelId: string) => {
+export const getProvider = (modelId: string) => {
   return models.find((m) => m.id === modelId)?.provider;
 }
 
@@ -51,19 +51,6 @@ export const create = internalMutation({
       });
 
       return matchId;
-  }
-});
-
-export const enqueueMatch = action({
-  args: {
-    jobId: v.id("jobs"),
-    candidateId: v.id("candidates"),
-    scoringGuidelineId: v.id("scoringGuidelines"),
-    model: v.string(),
-  },
-  handler: async (ctx, { jobId, candidateId, model, scoringGuidelineId }): Promise<{ taskId: Id<"tasks"> }> => {
-     const { taskId } = await enqueueTask(ctx, "match", "user", { jobId, candidateId, model, scoringGuidelineId });
-     return { taskId };
   }
 });
 
@@ -262,36 +249,6 @@ export const getPreviousMatches = query({
 });
 
 
-// Get available models for a candidate's matches
-export const getCandidateModels = query({
-    args: {
-        candidateId: v.id("candidates"),
-    },
-    handler: async (ctx, { candidateId }) => {
-        const matches = await ctx.db.query("matches")
-            .withIndex("by_candidate", (q) => q.eq("candidateId", candidateId))
-            .collect();
-        
-        // Get unique models
-        const uniqueModels = [...new Set(matches.map(match => match.model))];
-        return uniqueModels.sort();
-    }
-});
-
-// Get available models for a job's matches
-export const getJobModels = query({
-    args: {
-        jobId: v.id("jobs"),
-    },
-    handler: async (ctx, { jobId }) => {
-        const matches = await ctx.db.query("matches")
-            .withIndex("by_job", (q) => q.eq("jobId", jobId))
-            .collect();
-        
-        const uniqueModels = [...new Set(matches.map(match => match.model))];
-        return uniqueModels.sort();
-    }
-});
 
 // Get matches for a specific job with pagination, search, and filtering
 export const getJobMatches = query({
@@ -301,26 +258,14 @@ export const getJobMatches = query({
         search: v.optional(v.string()),
         sortBy: v.optional(v.union(v.literal("score"), v.literal("updatedAt"), v.literal("candidateName"))),
         sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
-        minScore: v.optional(v.number()),
-        maxScore: v.optional(v.number()),
         model: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { jobId, paginationOpts, search, sortBy = "score", sortOrder = "desc", minScore, maxScore, model } = args;
+        const { jobId, paginationOpts, search, sortBy = "score", sortOrder = "desc", model } = args;
         
         // Start with matches for this job
         let query = ctx.db.query("matches").withIndex("by_job", (q) => q.eq("jobId", jobId));
         
-        // Apply filters
-        if (minScore !== undefined || maxScore !== undefined) {
-            query = query.filter((q) => {
-                let scoreFilter = q.gte(q.field("score"), minScore ?? 0);
-                if (maxScore !== undefined) {
-                    scoreFilter = q.and(scoreFilter, q.lte(q.field("score"), maxScore));
-                }
-                return scoreFilter;
-            });
-        }
         
         if (model) {
             query = query.filter((q) => q.eq(q.field("model"), model));
@@ -360,18 +305,10 @@ export const getJobMatches = query({
         // Enrich matches with job and candidate details
         const enrichedMatches = await Promise.all(
             paginatedMatches.map(async (match) => {
-                const job = await ctx.db.get(match.jobId);
                 const candidate = await ctx.db.get(match.candidateId);
                 
                 return {
                     ...match,
-                    job: job ? {
-                        _id: job._id,
-                        title: job.title || job.teamtailorTitle,
-                        companyId: job.companyId,
-                        locations: job.locations,
-                        _creationTime: job._creationTime,
-                    } : null,
                     candidate: candidate ? {
                         _id: candidate._id,
                         name: candidate.name,
@@ -384,7 +321,7 @@ export const getJobMatches = query({
         return {
             page: enrichedMatches,
             isDone: endIndex >= sortedMatches.length,
-            continueCursor: endIndex < sortedMatches.length ? endIndex.toString() : null,
+            continueCursor: endIndex < sortedMatches.length ? endIndex.toString() : "",
         };
     }
 });
@@ -397,26 +334,15 @@ export const getCandidateMatches = query({
         search: v.optional(v.string()),
         sortBy: v.optional(v.union(v.literal("score"), v.literal("updatedAt"), v.literal("jobTitle"))),
         sortOrder: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
-        minScore: v.optional(v.number()),
-        maxScore: v.optional(v.number()),
         model: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { candidateId, paginationOpts, search, sortBy = "score", sortOrder = "desc", minScore, maxScore, model } = args;
+        const { candidateId, paginationOpts, search, sortBy = "score", sortOrder = "desc", model } = args;
         
         // Start with matches for this candidate
         let query = ctx.db.query("matches").withIndex("by_candidate", (q) => q.eq("candidateId", candidateId));
         
-        // Apply filters
-        if (minScore !== undefined || maxScore !== undefined) {
-            query = query.filter((q) => {
-                let scoreFilter = q.gte(q.field("score"), minScore ?? 0);
-                if (maxScore !== undefined) {
-                    scoreFilter = q.and(scoreFilter, q.lte(q.field("score"), maxScore));
-                }
-                return scoreFilter;
-            });
-        }
+        
         
         if (model) {
             query = query.filter((q) => q.eq(q.field("model"), model));
@@ -456,30 +382,9 @@ export const getCandidateMatches = query({
         // Enrich matches with job and candidate data
         const enrichedMatches = await Promise.all(
             paginatedMatches.map(async (match) => {
-                const job = await ctx.db.get(match.jobId);
-                const candidate = await ctx.db.get(match.candidateId);
-                
-                // Get company name if companyId exists
-                let companyName = null;
-                if (job?.companyId) {
-                    const company = await ctx.db.get(job.companyId);
-                    companyName = company?.name;
-                }
-                
                 return {
                     ...match,
-                    job: job ? {
-                        _id: job._id,
-                        title: job.title || job.teamtailorTitle,
-                        company: companyName,
-                        locations: job.locations,
-                        _creationTime: job._creationTime,
-                    } : null,
-                    candidate: candidate ? {
-                        _id: candidate._id,
-                        name: candidate.name,
-                        _creationTime: candidate._creationTime,
-                    } : null,
+                    job: await ctx.db.get(match.jobId),
                 };
             })
         );
@@ -487,7 +392,7 @@ export const getCandidateMatches = query({
         return {
             page: enrichedMatches,
             isDone: endIndex >= sortedMatches.length,
-            continueCursor: endIndex < sortedMatches.length ? endIndex.toString() : null,
+            continueCursor: endIndex < sortedMatches.length ? endIndex.toString() : "",
         };
     }
 });
@@ -548,7 +453,6 @@ export const match = internalAction({
       }),
       prompt,
     });
-
     return { metadata: { modelId: model.modelId, provider, totalUsage: response.usage, prompt, confidence: response.object.confidence }, raw: response.object, response: response.object };
   
   }

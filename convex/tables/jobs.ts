@@ -1,21 +1,23 @@
 import { defineTable } from "convex/server";
 import { Infer, v } from "convex/values";
-import { title } from "process";
 
 export const jobs = defineTable({
-  teamtailorId: v.string(),
-  teamtailorTitle: v.string(),
+  teamtailorId: v.optional(v.string()),
+  teamtailorTitle: v.optional(v.string()),
   orderNumber: v.optional(v.string()),
-
+  type: v.optional(v.union(v.literal("order"), v.literal("lead"), v.literal("prospect"))),
   title: v.optional(v.string()),
   companyId: v.optional(v.id("companies")),
   locations: v.array(v.string()),
   processingTask: v.optional(v.id("tasks")),
   rawData: v.any(), 
 
+  recruiters: v.array(v.id("users")),
+  salesRepresentatives: v.array(v.id("users")),
+
   updatedAt: v.number(),
-  updatedAtTT: v.number(),
-  createdAtTT: v.number(),
+  updatedAtTT: v.optional(v.number()),
+  createdAtTT: v.optional(v.number()),
 }).index("by_teamtailor_id", ["teamtailorId"])
 .index("by_order_number", ["orderNumber"])
 .searchIndex("by_teamtailor_title", { searchField: "teamtailorTitle" })
@@ -24,6 +26,7 @@ export const jobs = defineTable({
 export const jobSourceData = defineTable({
   jobId: v.id("jobs"),
   teamtailorBody: v.optional(v.any()),
+  body: v.optional(v.any()),
   updatedAt: v.number(),
 }).index("by_job_id", ["jobId"]);
 
@@ -62,6 +65,7 @@ export const jobTTCache = defineTable({
     jobId: v.optional(v.id("jobs")),
     title: v.string(),
     internalName: v.string(),
+    status: v.string(),
     body: v.string(),
     updatedAt: v.number(),
     createdAt: v.number(),

@@ -147,7 +147,7 @@ export const upsertSourceData = internalMutation({
     }
     const doc = {
       candidateId: args.candidateId,
-      assessment: args.assessment,
+      assessment: args.assessment ?? undefined,
       hubertAnswers: args.hubertAnswers,
       hubertUrl: args.hubertUrl,
       resumeSummary: args.resumeSummary,

@@ -6,7 +6,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon, SearchIcon } from "lucide-react";
+import { AlertCircleIcon, CheckCircleIcon, ChevronDownIcon, Loader2, SearchIcon, XIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 
 export type TaskItemFileProps = ComponentProps<"div">;
@@ -54,18 +54,23 @@ export const Task = ({
 
 export type TaskTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
   title: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled";
 };
 
 export const TaskTrigger = ({
   children,
   className,
   title,
+  status,
   ...props
 }: TaskTriggerProps) => (
   <CollapsibleTrigger asChild className={cn("group", className)} {...props}>
     {children ?? (
       <div className="flex w-full cursor-pointer items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground">
-        <SearchIcon className="size-4" />
+        {status === "running" && <Loader2 className="size-4 animate-spin" />}
+        {status === "succeeded" && <CheckCircleIcon className="size-4 text-green-500" />}
+        {status === "failed" && <AlertCircleIcon className="size-4 text-red-500" />}
+        {status === "canceled" && <XIcon className="size-4 text-muted-foreground" />}
         <p className="text-sm">{title}</p>
         <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
       </div>

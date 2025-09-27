@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import Image from "next/image";
+import { timeAgo } from "@/lib/format";
 
 
 interface CandidatesTableProps {
@@ -131,7 +132,7 @@ export function CandidatesTable({
                 <TableCell className="w-64 font-medium">{candidate.name}</TableCell>
                 <TableCell className="w-64 text-muted-foreground">{candidate.email}</TableCell>
                 <TableCell className="w-32 text-sm">
-                  {format(new Date(candidate.updatedAtTT), "MMM dd, yyyy")}
+                  {timeAgo(candidate.updatedAtTT)}
                 </TableCell>
                 <TableCell className="w-32 text-sm text-muted-foreground">
                   {format(new Date(candidate.createdAtTT), "MMM dd, yyyy")}

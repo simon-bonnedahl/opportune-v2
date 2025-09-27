@@ -146,7 +146,7 @@ export const ContextContentHeader = ({
   const usedPercent = usedTokens / maxTokens;
   const displayPct = new Intl.NumberFormat("en-US", {
     style: "percent",
-    maximumFractionDigits: 4,
+    maximumFractionDigits: 1,
   }).format(usedPercent);
   const used = new Intl.NumberFormat("en-US", {
     notation: "compact",
