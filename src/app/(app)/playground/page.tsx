@@ -23,7 +23,7 @@ import { JobSearch } from "@/components/playground/job-search";
 import { Input } from "@/components/ui/input";
 import { Icons } from "@/components/icons";
 import { models } from "@/config/models";
-import { timeAgo } from "@/lib/format";
+import { formatDuration, timeAgo } from "@/lib/format";
 import {
   Context,
   ContextTrigger,
@@ -38,6 +38,7 @@ import {
 } from "@/components/ai-elements/context";
 import { getProviderLogo } from "@/lib/provider-logos";
 import Image from "next/image";
+import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
 
 export default function PlaygroundPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<Doc<"candidates"> | null>(null);
@@ -445,58 +446,34 @@ export default function PlaygroundPage() {
 
           </div>
 
-          {/* Task Status Display */}
-          {currentTask && (
-            <div className="space-y-2 p-4 border rounded-lg bg-muted/50">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Match Task Status</span>
-                <div className="flex items-center gap-2">
-                  {currentTask.status === "running" && (
-                    <Icons.spinner className="h-4 w-4 animate-spin" />
-                  )}
-                  <Badge variant={
-                    currentTask.status === "succeeded" ? "default" :
-                      currentTask.status === "running" ? "secondary" :
-                        currentTask.status === "failed" ? "destructive" :
-                          "outline"
-                  }>
-                    {currentTask.status}
-                  </Badge>
-                  {(currentTask.status === "succeeded" || currentTask.status === "failed") && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearTask}
-                      className="h-6 px-2 text-xs"
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </div>
+         
+          {/* Progress Messages */}
+					{currentTask && currentTask.progressMessages.length > 0 && (
+						<div className="space-y-4">
+							<div className="bg-muted/30 rounded-lg p-4 flex flex-col gap-4">
+				
 
-              {currentTask.status === "running" && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Progress</span>
-                    <span>{currentTask.progress}%</span>
-                  </div>
-                  <Progress value={currentTask.progress} className="w-full" />
-                  {currentTask.progressMessages.length > 0 && (
-                    <p className="text-xs text-muted-foreground">{currentTask.progressMessages[currentTask.progressMessages.length - 1].message}</p>
-                  )}
-                </div>
-              )}
-
-              {currentTask.status === "succeeded" && (
-                <p className="text-sm text-green-600">Match completed successfully!</p>
-              )}
-
-              {currentTask.status === "failed" && currentTask.errorMessage && (
-                <p className="text-sm text-red-600">{currentTask.errorMessage}</p>
-              )}
-            </div>
-          )}
+								<Task key={currentTask._id} defaultOpen={true}>
+									<TaskTrigger  title={currentTask.progressMessages[currentTask.progressMessages.length - 1].message + " • " + currentTask.progress + "%"} status={currentTask.status} />
+									<TaskContent>
+										{currentTask.progressMessages.map((messages, itemIndex: number) => {
+											const currentTimestamp = messages.timestamp;
+											const nextTimestamp = currentTask.progressMessages[itemIndex + 1]?.timestamp;
+											const duration = itemIndex > 0 && nextTimestamp ? formatDuration(currentTimestamp, nextTimestamp, 1) : null;
+											
+											return (
+												<TaskItem key={itemIndex}>
+													{messages.message}
+													{duration && ` ${duration}`}
+												</TaskItem>
+											);
+										})}
+									</TaskContent>
+								</Task>
+							</div>
+							
+						</div>
+					)}
 
           {/* Create Match Button */}
           <Button
